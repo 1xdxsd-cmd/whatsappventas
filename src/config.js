@@ -11,6 +11,8 @@ export const config = {
   numerosAdmin,
   negocio: process.env.NOMBRE_NEGOCIO || 'Streaming Thalia',
   moneda: process.env.MONEDA || '$',
+  // Si los escribiste en el .env, mandan sobre los métodos de pago de la página.
+  datosTransferenciaEnEnv: Boolean(process.env.DATOS_TRANSFERENCIA?.trim()),
   datosTransferencia: (process.env.DATOS_TRANSFERENCIA || 'Pide los datos de transferencia a un asesor.').replace(/\\n/g, '\n'),
   carpetaSesion: process.env.CARPETA_SESION || 'auth',
   numeroBot: normalizarNumeroBot(process.env.NUMERO_BOT),

@@ -20,6 +20,7 @@ test('arma el texto de pago con los métodos activos', () => {
   const texto = textoMetodosPago([
     { type: 'transferencia', bank: 'BBVA', holder: 'Anthony', clabe: '012345', cardNumber: '', active: true },
     { type: 'transferencia', bank: 'Banorte', active: false },
+    { type: 'transferencia', bank: 'Santander', holder: '', clabe: '', cardNumber: '', active: true },
   ]);
   assert.equal(texto, '*Transferencia BBVA*\nTitular: Anthony\nCLABE: 012345');
 });

@@ -49,7 +49,7 @@ async function cargarContexto(telefono) {
     ]);
     if (servicios.length > 0) contexto.servicios = servicios;
     const datosPago = textoMetodosPago(metodos);
-    if (datosPago) contexto.datosPago = datosPago;
+    if (datosPago && !config.datosTransferenciaEnEnv) contexto.datosPago = datosPago;
     if (cliente) {
       contexto.cliente = { id: cliente.id, nombre: cliente.name, usuario: cliente.username, saldo: Number(cliente.balance) || 0 };
       // Orden fijo para que el número que elige el cliente no cambie entre mensajes.

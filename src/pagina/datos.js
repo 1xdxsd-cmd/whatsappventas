@@ -21,7 +21,8 @@ export function mismoTelefono(a, b) {
 
 export function textoMetodosPago(metodos) {
   return metodos
-    .filter((m) => m.active !== false)
+    // Un método con solo el nombre del banco no le sirve al cliente para pagar.
+    .filter((m) => m.active !== false && (m.holder || m.clabe || m.cardNumber))
     .map((m) => {
       const lineas = [`*${m.type === 'transferencia' ? 'Transferencia' : m.type} ${m.bank}*`];
       if (m.holder) lineas.push(`Titular: ${m.holder}`);
