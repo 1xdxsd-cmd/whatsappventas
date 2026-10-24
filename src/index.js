@@ -4,6 +4,7 @@ import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
 import { textoMetodosPago } from './pagina/datos.js';
+import { iniciarRecordatorios } from './recordatorios/programador.js';
 import { obtenerEstado, guardarEstado } from './sesiones.js';
 import { crearConexion, leerMensaje } from './whatsapp/conexion.js';
 
@@ -120,6 +121,10 @@ const conexion = crearConexion({
     }
   },
 });
+
+if (pagina) {
+  iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, jidAdmin: config.jidAdmin, logger });
+}
 
 conexion.iniciar().catch((error) => {
   logger.error({ err: error }, 'No se pudo iniciar la conexión con WhatsApp');

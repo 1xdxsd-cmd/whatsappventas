@@ -24,9 +24,10 @@ function textoMenu() {
     '¿En qué te ayudo? Responde con el número:',
     '',
     '*1.* Ver planes y precios',
-    '*2.* Cómo comprar',
+    '*2.* Renovar una cuenta',
     '*3.* Reportar una cuenta que no funciona',
-    '*4.* Hablar con un asesor',
+    '*4.* Cómo comprar',
+    '*5.* Hablar con un asesor',
   ].join('\n');
 }
 
@@ -75,12 +76,31 @@ function textoComoComprar() {
   ].join('\n');
 }
 
-function textoRentas(rentas) {
+function textoRentas(pregunta, rentas, precio) {
   const lineas = rentas.map((r, i) => {
     const correo = r.email ? `, ${r.email}` : '';
-    return `*${i + 1}.* ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}${correo}), vence ${String(r.endDate).slice(0, 10)}`;
+    const extra = precio ? `, renovar por ${precio(r)}` : '';
+    return `*${i + 1}.* ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}${correo}), vence ${String(r.endDate).slice(0, 10)}${extra}`;
   });
-  return ['¿Cuál cuenta no funciona?', '', ...lineas, '', 'Responde con el número, o *0* para volver al menú.'].join('\n');
+  return [pregunta, '', ...lineas, '', 'Responde con el número, o *0* para volver al menú.'].join('\n');
+}
+
+const PREGUNTA_REPORTE = '¿Cuál cuenta no funciona?';
+const PREGUNTA_RENOVAR = '¿Cuál cuenta quieres renovar?';
+
+// La renovación cuesta lo que paga ese cliente en su renta; si la renta no
+// tiene precio, el del catálogo. Igual que en la página.
+function servicioParaRenovar(renta, servicios) {
+  const delCatalogo =
+    servicios.find((s) => s.platform === renta.platform && s.type === renta.type) ??
+    servicios.find((s) => s.platform === renta.platform);
+  return {
+    platform: renta.platform,
+    type: renta.type,
+    name: delCatalogo?.name,
+    price: Number(renta.price) || delCatalogo?.price || 0,
+    duration: delCatalogo?.duration || 30,
+  };
 }
 
 function resumenPedido(servicio, moneda) {
@@ -116,6 +136,10 @@ export function procesarMensaje(mensaje, estado, contexto) {
   if (texto === 'asesor') {
     return pasarAAsesor('Un cliente pidió hablar con un asesor.');
   }
+  // Los recordatorios de vencimiento piden responder "renovar".
+  if (texto === 'renovar' && estado.paso !== 'asesor') {
+    return iniciarRenovacion(rentas, servicios, cliente, moneda);
+  }
 
   switch (estado.paso) {
     case 'inicio':
@@ -123,9 +147,10 @@ export function procesarMensaje(mensaje, estado, contexto) {
 
     case 'menu':
       if (texto === '1') return catalogo();
-      if (texto === '2') return menu([textoComoComprar(), textoMenu()]);
+      if (texto === '2') return iniciarRenovacion(rentas, servicios, cliente, moneda);
       if (texto === '3') return iniciarReporte(rentas, cliente);
-      if (texto === '4') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
+      if (texto === '4') return menu([textoComoComprar(), textoMenu()]);
+      if (texto === '5') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
       return menu([`No entendí tu respuesta. ${textoMenu()}`]);
 
     case 'catalogo': {
@@ -140,16 +165,16 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (texto === '0' || !grupo) return catalogo();
       const servicio = elegir(grupo.opciones, texto);
       if (!servicio) return noEntendi(textoOpciones(grupo, moneda), estado);
-      const resumen = resumenPedido(servicio, moneda);
-      return {
-        respuestas: [
-          `Perfecto, tu pedido: *${resumen}*.`,
-          `Haz el pago a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*.`,
-        ],
-        estado: { paso: 'pago', resumen },
-        acciones: [{ tipo: 'crearPedido', servicio, resumen }],
-        aviso: { texto: `Nuevo pedido: ${resumen}. Esperando comprobante.` },
-      };
+      return pedirPago(servicio, resumenPedido(servicio, moneda), datosPago);
+    }
+
+    case 'renovar': {
+      if (texto === '0') return menu();
+      const renta = elegir(rentas, texto);
+      if (!renta) return noEntendi(textoRentas(PREGUNTA_RENOVAR, rentas, (r) => formatearPrecio(servicioParaRenovar(r, servicios).price, moneda)), estado);
+      const servicio = servicioParaRenovar(renta, servicios);
+      const correo = renta.email ? ` (${renta.email})` : '';
+      return pedirPago(servicio, `Renovación de ${resumenPedido(servicio, moneda)}${correo}`, datosPago);
     }
 
     case 'pago':
@@ -177,7 +202,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
     case 'reporte': {
       if (texto === '0') return menu();
       const renta = elegir(rentas, texto);
-      if (!renta) return noEntendi(textoRentas(rentas), estado);
+      if (!renta) return noEntendi(textoRentas(PREGUNTA_REPORTE, rentas), estado);
       return {
         respuestas: ['Cuéntanos qué pasa con la cuenta (por ejemplo: pide un código, contraseña incorrecta, perfil ocupado).'],
         estado: { paso: 'reporte-motivo', rentaId: renta.id },
@@ -222,7 +247,34 @@ function iniciarReporte(rentas, cliente) {
       aviso: { texto: motivo },
     };
   }
-  return { respuestas: [textoRentas(rentas)], estado: { paso: 'reporte' } };
+  return { respuestas: [textoRentas(PREGUNTA_REPORTE, rentas)], estado: { paso: 'reporte' } };
+}
+
+function iniciarRenovacion(rentas, servicios, cliente, moneda) {
+  if (rentas.length === 0) {
+    const motivo = cliente
+      ? `${cliente.nombre} quiere renovar, pero no tiene rentas activas en la página.`
+      : 'Un cliente quiere renovar, pero su número no está registrado en la página.';
+    return {
+      respuestas: ['No encontré cuentas activas con este número. Un asesor te escribirá en breve para ayudarte a renovar.'],
+      estado: { paso: 'asesor' },
+      aviso: { texto: motivo },
+    };
+  }
+  const precio = (r) => formatearPrecio(servicioParaRenovar(r, servicios).price, moneda);
+  return { respuestas: [textoRentas(PREGUNTA_RENOVAR, rentas, precio)], estado: { paso: 'renovar' } };
+}
+
+function pedirPago(servicio, resumen, datosPago) {
+  return {
+    respuestas: [
+      `Perfecto, tu pedido: *${resumen}*.`,
+      `Haz el pago a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*.`,
+    ],
+    estado: { paso: 'pago', resumen },
+    acciones: [{ tipo: 'crearPedido', servicio, resumen }],
+    aviso: { texto: `Nuevo pedido: ${resumen}. Esperando comprobante.` },
+  };
 }
 
 function pasarAAsesor(textoAviso) {

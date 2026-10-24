@@ -6,7 +6,7 @@ Agente de WhatsApp para vender cuentas y perfiles de streaming (Netflix, Disney+
 
 - Se conecta a WhatsApp escaneando un QR y guarda la sesión para no volver a escanear.
 - Se reconecta solo si se cae la conexión.
-- Responde con un menú: ver planes y precios, cómo comprar, reportar una cuenta que no funciona, hablar con un asesor.
+- Responde con un menú: ver planes y precios, renovar una cuenta, reportar una cuenta que no funciona, cómo comprar, hablar con un asesor.
 - Toma el pedido (servicio + perfil o cuenta completa), envía los datos de transferencia y pide el comprobante.
 - Te avisa a tu número personal de cada pedido nuevo, te reenvía el comprobante y te avisa cuando alguien pide un asesor.
 - Con un asesor, el bot se queda callado hasta que el cliente escribe `menu`.
@@ -19,6 +19,7 @@ Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a
 - Reconoce al cliente por el teléfono guardado en su ficha (compara los últimos 10 dígitos) y lo saluda por su nombre.
 - Guarda cada pedido en **Pedidos**, con el teléfono y una nota, y la actualiza cuando llega el comprobante.
 - Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
+- Manda **recordatorios de vencimiento** 3 días antes, 1 día antes y el mismo día, solo entre 10 am y 8 pm de México, en un mensaje por cliente. El cliente responde *renovar*, elige la cuenta y paga el precio de su renta. Te llega un resumen de a quién se avisó. Los avisos enviados se guardan en `datos/recordatorios.json` para no repetirlos.
 
 Si la página no responde o no está configurada, el bot sigue funcionando con el catálogo de `src/catalogo/servicios.js` (precios mensuales en pesos mexicanos) y `DATOS_TRANSFERENCIA`, pero no guarda pedidos ni reportes.
 
@@ -46,7 +47,7 @@ npm test
 
 ## Para cuidar el número
 
-Baileys no es oficial y WhatsApp puede bloquear números que se comportan como bots. Por eso el bot solo responde a quien le escribe, pone "escribiendo..." y espera 1 a 3 segundos antes de cada mensaje, y nunca envía mensajes masivos. Usa un número dedicado, no el personal.
+Baileys no es oficial y WhatsApp puede bloquear números que se comportan como bots. Por eso el bot pone "escribiendo..." y espera 1 a 3 segundos antes de cada mensaje, y nunca envía mensajes masivos. Los recordatorios son lo único que el bot envía sin que le escriban: van solo a clientes con renta activa, uno por cliente y con 20 segundos entre uno y otro. Usa un número dedicado, no el personal.
 
 ## Estructura
 
@@ -56,4 +57,5 @@ Baileys no es oficial y WhatsApp puede bloquear números que se comportan como b
 | `src/bot/` | Conversación: menú, catálogo, pedido, comprobante y reportes, como función pura y probada |
 | `src/catalogo/` | Catálogo de respaldo y cómo se muestra |
 | `src/pagina/` | Conexión con la API de tu página |
+| `src/recordatorios/` | Recordatorios de vencimiento |
 | `src/sesiones.js` | Estado de cada conversación (en memoria por ahora) |

@@ -52,13 +52,21 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       return conCache('pagos', 60_000, () => pedir('GET', '/api/admin/payments'));
     },
 
+    clientes() {
+      return conCache('clientes', 30_000, () => pedir('GET', '/api/admin/clients'));
+    },
+
+    rentas() {
+      return conCache('rentas', 30_000, () => pedir('GET', '/api/rentals'));
+    },
+
     async clientePorTelefono(telefono) {
-      const clientes = await conCache('clientes', 30_000, () => pedir('GET', '/api/admin/clients'));
+      const clientes = await this.clientes();
       return clientes.find((c) => mismoTelefono(c.phone, telefono)) ?? null;
     },
 
     async rentasActivas(clienteId) {
-      const rentas = await conCache('rentas', 30_000, () => pedir('GET', '/api/rentals'));
+      const rentas = await this.rentas();
       return rentas.filter((r) => r.clientId === clienteId && rentaActiva(r.endDate));
     },
 

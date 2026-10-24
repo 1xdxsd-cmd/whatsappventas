@@ -33,6 +33,7 @@ export function crearConexion({ carpetaSesion, logger, alRecibir }) {
   let socket = null;
   let cola = Promise.resolve();
   let intentos = 0;
+  let abierta = false;
 
   function encolar(tarea) {
     cola = cola.then(tarea).catch((error) => logger.error({ err: error }, 'No se pudo enviar un mensaje'));
@@ -59,10 +60,12 @@ export function crearConexion({ carpetaSesion, logger, alRecibir }) {
         qrcode.generate(qr, { small: true });
       }
       if (connection === 'open') {
+        abierta = true;
         intentos = 0;
         logger.info('Conectado a WhatsApp');
       }
       if (connection === 'close') {
+        abierta = false;
         const codigo = lastDisconnect?.error?.output?.statusCode;
         if (codigo === DisconnectReason.loggedOut) {
           logger.error(`La sesión se cerró desde el teléfono. Borra la carpeta "${carpetaSesion}" y vuelve a escanear el QR.`);
@@ -101,5 +104,15 @@ export function crearConexion({ carpetaSesion, logger, alRecibir }) {
     return socket.readMessages([mensaje.key]).catch(() => {});
   }
 
-  return { iniciar, enviarTexto, reenviar, marcarLeido };
+  // Busca el chat de WhatsApp de un teléfono guardado en la página. A los números
+  // de 10 dígitos se les agrega el 52 de México; WhatsApp dice cuál es el correcto.
+  async function buscarJid(telefono) {
+    let numero = String(telefono ?? '').replace(/\D/g, '');
+    if (numero.length === 10) numero = `52${numero}`;
+    if (numero.length < 11) return null;
+    const [resultado] = (await socket.onWhatsApp(numero)) ?? [];
+    return resultado?.exists ? resultado.jid : null;
+  }
+
+  return { iniciar, enviarTexto, reenviar, marcarLeido, buscarJid, conectado: () => abierta };
 }

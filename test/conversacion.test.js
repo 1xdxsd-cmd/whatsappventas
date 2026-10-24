@@ -85,11 +85,11 @@ test('0 vuelve atrás', () => {
 });
 
 test('con un asesor el bot calla hasta que el cliente escribe menu', () => {
-  const asesor = hablar('hola', '4');
+  const asesor = hablar('hola', '5');
   assert.equal(asesor.estado.paso, 'asesor');
   assert.ok(asesor.aviso);
-  assert.deepEqual(hablar('hola', '4', 'hola, tengo una duda').respuestas, []);
-  assert.equal(hablar('hola', '4', 'Menú').estado.paso, 'menu');
+  assert.deepEqual(hablar('hola', '5', 'hola, tengo una duda').respuestas, []);
+  assert.equal(hablar('hola', '5', 'Menú').estado.paso, 'menu');
 });
 
 test('"menu" cancela un pedido a medias', () => {
@@ -100,7 +100,7 @@ const conRentas = {
   ...contextoBase,
   cliente: { nombre: 'Laura' },
   rentas: [
-    { id: 'r1', platform: 'netflix', type: 'perfil', email: 'n1@ales98.com', endDate: '2026-11-20', accountId: 'acc-1' },
+    { id: 'r1', platform: 'netflix', type: 'perfil', email: 'n1@ales98.com', endDate: '2026-11-20', accountId: 'acc-1', price: 75 },
     { id: 'r2', platform: 'disney', type: 'cuenta', email: 'd1@ales98.com', endDate: '2026-11-05', accountId: 'acc-2' },
   ],
 };
@@ -125,4 +125,29 @@ test('reportar sin cuentas activas pasa a un asesor', () => {
   assert.equal(resultado.estado.paso, 'asesor');
   assert.match(resultado.aviso.texto, /no está registrado en la página/);
   assert.equal(resultado.acciones, undefined);
+});
+
+test('renovar desde el recordatorio usa el precio que paga ese cliente', () => {
+  const lista = conversar(conRentas, 'renovar');
+  assert.equal(lista.estado.paso, 'renovar');
+  assert.match(lista.respuestas[0], /Netflix \(perfil, n1@ales98\.com\), vence 2026-11-20, renovar por \$75/);
+  // Sin precio en la renta, usa el del catálogo.
+  assert.match(lista.respuestas[0], /Disney\+ \(cuenta completa, d1@ales98\.com\), vence 2026-11-05, renovar por \$140/);
+
+  const pedido = conversar(conRentas, 'renovar', '1');
+  assert.equal(pedido.estado.paso, 'pago');
+  assert.match(pedido.respuestas[0], /Renovación de Netflix, perfil, \$75 al mes \(n1@ales98\.com\)/);
+  assert.equal(pedido.acciones[0].tipo, 'crearPedido');
+  assert.equal(pedido.acciones[0].servicio.price, 75);
+});
+
+test('renovar también está en el menú, y sin rentas pasa a un asesor', () => {
+  assert.equal(conversar(conRentas, 'hola', '2').estado.paso, 'renovar');
+  const sinRentas = hablar('hola', '2');
+  assert.equal(sinRentas.estado.paso, 'asesor');
+  assert.match(sinRentas.aviso.texto, /quiere renovar/);
+});
+
+test('"renovar" no interrumpe a un asesor', () => {
+  assert.deepEqual(conversar(conRentas, 'hola', '5', 'renovar').respuestas, []);
 });
