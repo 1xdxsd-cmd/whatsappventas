@@ -1,8 +1,10 @@
-import { SERVICIOS, TIPOS, formatearPrecio } from '../catalogo/servicios.js';
+import { agruparPorPlataforma, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo } from '../catalogo/servicios.js';
 
-// Lógica de la conversación como función pura: recibe el mensaje y el estado
-// del cliente, y devuelve las respuestas, el nuevo estado y, si hace falta,
-// un aviso para Anthony. No sabe nada de WhatsApp, así se puede probar sola.
+// Lógica de la conversación como función pura: recibe el mensaje, el estado
+// del cliente y el contexto (catálogo, datos de pago, rentas del cliente), y
+// devuelve las respuestas, el nuevo estado, las acciones que el servidor debe
+// ejecutar en la página y, si hace falta, un aviso para Anthony.
+// No sabe nada de WhatsApp ni de la página, así se puede probar sola.
 
 export const ESTADO_INICIAL = { paso: 'inicio' };
 
@@ -23,22 +25,25 @@ function textoMenu() {
     '',
     '*1.* Ver planes y precios',
     '*2.* Cómo comprar',
-    '*3.* Hablar con un asesor',
+    '*3.* Reportar una cuenta que no funciona',
+    '*4.* Hablar con un asesor',
   ].join('\n');
 }
 
-function textoBienvenida() {
-  return `¡Hola! 👋 Bienvenido. Vendemos cuentas y perfiles de streaming.\n\n${textoMenu()}`;
+function textoBienvenida(cliente) {
+  const saludo = cliente ? `¡Hola, ${cliente.nombre}! 👋` : '¡Hola! 👋 Bienvenido.';
+  return `${saludo} Vendemos cuentas y perfiles de streaming.\n\n${textoMenu()}`;
 }
 
-function textoCatalogo(moneda) {
-  const lineas = SERVICIOS.map((servicio, i) => {
-    const perfil = formatearPrecio(servicio.precios.perfil, moneda);
-    const completa = formatearPrecio(servicio.precios.completa, moneda);
-    return `*${i + 1}.* ${servicio.nombre}: perfil ${perfil}, cuenta completa ${completa}`;
+function textoCatalogo(grupos, moneda) {
+  const lineas = grupos.map((grupo, i) => {
+    const precios = grupo.opciones
+      .map((s) => `${nombreTipo(s.type).toLowerCase()} ${formatearPrecio(s.price, moneda)}`)
+      .join(', ');
+    return `*${i + 1}.* ${grupo.nombre}: ${precios}`;
   });
   return [
-    '*Planes mensuales (pesos mexicanos)*',
+    '*Planes (pesos mexicanos)*',
     '',
     ...lineas,
     '',
@@ -46,12 +51,12 @@ function textoCatalogo(moneda) {
   ].join('\n');
 }
 
-function textoTipos(servicio, moneda) {
-  const lineas = TIPOS.map(
-    (tipo, i) => `*${i + 1}.* ${tipo.nombre}: ${formatearPrecio(servicio.precios[tipo.id], moneda)} al mes`,
+function textoOpciones(grupo, moneda) {
+  const lineas = grupo.opciones.map(
+    (s, i) => `*${i + 1}.* ${nombreTipo(s.type)}: ${formatearPrecio(s.price, moneda)} ${formatearDuracion(s.duration)}`,
   );
   return [
-    `*${servicio.nombre}*`,
+    `*${grupo.nombre}*`,
     '',
     ...lineas,
     '',
@@ -70,8 +75,16 @@ function textoComoComprar() {
   ].join('\n');
 }
 
-function resumenPedido(servicio, tipo, moneda) {
-  return `${servicio.nombre}, ${tipo.nombre.toLowerCase()}, ${formatearPrecio(servicio.precios[tipo.id], moneda)} al mes`;
+function textoRentas(rentas) {
+  const lineas = rentas.map((r, i) => {
+    const correo = r.email ? `, ${r.email}` : '';
+    return `*${i + 1}.* ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}${correo}), vence ${String(r.endDate).slice(0, 10)}`;
+  });
+  return ['¿Cuál cuenta no funciona?', '', ...lineas, '', 'Responde con el número, o *0* para volver al menú.'].join('\n');
+}
+
+function resumenPedido(servicio, moneda) {
+  return `${nombrePlataforma(servicio.platform, servicio.name)}, ${nombreTipo(servicio.type).toLowerCase()}, ${formatearPrecio(servicio.price, moneda)} ${formatearDuracion(servicio.duration)}`;
 }
 
 function elegir(lista, texto) {
@@ -80,71 +93,73 @@ function elegir(lista, texto) {
   return lista[numero - 1];
 }
 
+function noEntendi(texto, estado) {
+  return { respuestas: [`No entendí tu respuesta.\n\n${texto}`], estado };
+}
+
 /**
  * @param {{ texto?: string, tieneComprobante?: boolean }} mensaje
- * @param {{ paso: string, servicio?: string, tipo?: string }} estado
- * @param {{ moneda: string, datosTransferencia: string }} opciones
- * @returns {{ respuestas: string[], estado: object, aviso?: { texto: string, reenviar?: boolean } }}
+ * @param {{ paso: string }} estado
+ * @param {{ moneda: string, servicios: object[], datosPago: string, cliente?: { nombre: string } | null, rentas?: object[] }} contexto
+ * @returns {{ respuestas: string[], estado: object, acciones?: object[], aviso?: { texto: string, reenviar?: boolean } }}
  */
-export function procesarMensaje(mensaje, estado, opciones) {
+export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, datosTransferencia } = opciones;
+  const { moneda, servicios, datosPago, cliente = null, rentas = [] } = contexto;
+  const grupos = agruparPorPlataforma(servicios);
   const menu = (respuestas = [textoMenu()]) => ({ respuestas, estado: { paso: 'menu' } });
+  const catalogo = () => ({ respuestas: [textoCatalogo(grupos, moneda)], estado: { paso: 'catalogo' } });
 
   if (PALABRAS_MENU.includes(texto)) {
-    return estado.paso === 'inicio' ? menu([textoBienvenida()]) : menu();
+    return estado.paso === 'inicio' ? menu([textoBienvenida(cliente)]) : menu();
   }
   if (texto === 'asesor') {
-    return pasarAAsesor();
+    return pasarAAsesor('Un cliente pidió hablar con un asesor.');
   }
 
   switch (estado.paso) {
     case 'inicio':
-      return menu([textoBienvenida()]);
+      return menu([textoBienvenida(cliente)]);
 
     case 'menu':
-      if (texto === '1') return { respuestas: [textoCatalogo(moneda)], estado: { paso: 'catalogo' } };
+      if (texto === '1') return catalogo();
       if (texto === '2') return menu([textoComoComprar(), textoMenu()]);
-      if (texto === '3') return pasarAAsesor();
+      if (texto === '3') return iniciarReporte(rentas, cliente);
+      if (texto === '4') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
       return menu([`No entendí tu respuesta. ${textoMenu()}`]);
 
     case 'catalogo': {
       if (texto === '0') return menu();
-      const servicio = elegir(SERVICIOS, texto);
-      if (!servicio) {
-        return { respuestas: [`No entendí tu respuesta.\n\n${textoCatalogo(moneda)}`], estado };
-      }
-      return { respuestas: [textoTipos(servicio, moneda)], estado: { paso: 'tipo', servicio: servicio.id } };
+      const grupo = elegir(grupos, texto);
+      if (!grupo) return noEntendi(textoCatalogo(grupos, moneda), estado);
+      return { respuestas: [textoOpciones(grupo, moneda)], estado: { paso: 'tipo', platform: grupo.platform } };
     }
 
     case 'tipo': {
-      const servicio = SERVICIOS.find((s) => s.id === estado.servicio);
-      if (texto === '0' || !servicio) return { respuestas: [textoCatalogo(moneda)], estado: { paso: 'catalogo' } };
-      const tipo = elegir(TIPOS, texto);
-      if (!tipo) {
-        return { respuestas: [`No entendí tu respuesta.\n\n${textoTipos(servicio, moneda)}`], estado };
-      }
-      const resumen = resumenPedido(servicio, tipo, moneda);
+      const grupo = grupos.find((g) => g.platform === estado.platform);
+      if (texto === '0' || !grupo) return catalogo();
+      const servicio = elegir(grupo.opciones, texto);
+      if (!servicio) return noEntendi(textoOpciones(grupo, moneda), estado);
+      const resumen = resumenPedido(servicio, moneda);
       return {
         respuestas: [
           `Perfecto, tu pedido: *${resumen}*.`,
-          `Haz la transferencia a:\n\n${datosTransferencia}\n\nLuego envía aquí la *foto del comprobante*.`,
+          `Haz el pago a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*.`,
         ],
-        estado: { paso: 'pago', servicio: servicio.id, tipo: tipo.id },
+        estado: { paso: 'pago', resumen },
+        acciones: [{ tipo: 'crearPedido', servicio, resumen }],
         aviso: { texto: `Nuevo pedido: ${resumen}. Esperando comprobante.` },
       };
     }
 
     case 'pago':
     case 'revision': {
-      const servicio = SERVICIOS.find((s) => s.id === estado.servicio);
-      const tipo = TIPOS.find((t) => t.id === estado.tipo);
-      const resumen = servicio && tipo ? resumenPedido(servicio, tipo, moneda) : 'pedido';
       if (mensaje.tieneComprobante) {
         return {
           respuestas: ['¡Recibimos tu comprobante! Lo revisamos y te enviamos los datos de acceso por aquí.'],
           estado: { ...estado, paso: 'revision' },
-          aviso: { texto: `Comprobante recibido para: ${resumen}. Revísalo y entrega la cuenta.`, reenviar: true },
+          acciones: [{ tipo: 'comprobanteRecibido' }],
+          aviso: { texto: `Comprobante recibido para: ${estado.resumen}. Revísalo y entrega la cuenta.`, reenviar: true },
         };
       }
       if (estado.paso === 'revision') {
@@ -154,8 +169,36 @@ export function procesarMensaje(mensaje, estado, opciones) {
         };
       }
       return {
-        respuestas: ['Para continuar, envía la *foto del comprobante* de la transferencia. Escribe *menu* para cancelar.'],
+        respuestas: ['Para continuar, envía la *foto del comprobante* del pago. Escribe *menu* para cancelar.'],
         estado,
+      };
+    }
+
+    case 'reporte': {
+      if (texto === '0') return menu();
+      const renta = elegir(rentas, texto);
+      if (!renta) return noEntendi(textoRentas(rentas), estado);
+      return {
+        respuestas: ['Cuéntanos qué pasa con la cuenta (por ejemplo: pide un código, contraseña incorrecta, perfil ocupado).'],
+        estado: { paso: 'reporte-motivo', rentaId: renta.id },
+      };
+    }
+
+    case 'reporte-motivo': {
+      const renta = rentas.find((r) => r.id === estado.rentaId);
+      if (texto === '0' || !renta) return menu();
+      if (!texto) {
+        return { respuestas: ['Escríbenos en un mensaje qué pasa con la cuenta, o *0* para cancelar.'], estado };
+      }
+      const nombre = nombrePlataforma(renta.platform);
+      return {
+        respuestas: [
+          `Listo, reportamos tu cuenta de ${nombre}. Te avisamos por aquí en cuanto quede resuelta.`,
+          textoMenu(),
+        ],
+        estado: { paso: 'menu' },
+        acciones: [{ tipo: 'reportarCaida', renta, motivo: mensaje.texto.trim() }],
+        aviso: { texto: `Cuenta caída reportada: ${nombre} ${renta.email || ''}. Motivo: ${mensaje.texto.trim()}` },
       };
     }
 
@@ -164,14 +207,28 @@ export function procesarMensaje(mensaje, estado, opciones) {
       return { respuestas: [], estado };
 
     default:
-      return menu([textoBienvenida()]);
+      return menu([textoBienvenida(cliente)]);
   }
 }
 
-function pasarAAsesor() {
+function iniciarReporte(rentas, cliente) {
+  if (rentas.length === 0) {
+    const motivo = cliente
+      ? `${cliente.nombre} quiere reportar una cuenta caída, pero no tiene rentas activas en la página.`
+      : 'Un cliente quiere reportar una cuenta caída, pero su número no está registrado en la página.';
+    return {
+      respuestas: ['No encontré cuentas activas con este número. Un asesor te escribirá en breve por aquí.'],
+      estado: { paso: 'asesor' },
+      aviso: { texto: motivo },
+    };
+  }
+  return { respuestas: [textoRentas(rentas)], estado: { paso: 'reporte' } };
+}
+
+function pasarAAsesor(textoAviso) {
   return {
     respuestas: ['Listo, un asesor te escribirá en breve por aquí. Escribe *menu* cuando quieras volver al bot.'],
     estado: { paso: 'asesor' },
-    aviso: { texto: 'Un cliente pidió hablar con un asesor.' },
+    aviso: { texto: textoAviso },
   };
 }

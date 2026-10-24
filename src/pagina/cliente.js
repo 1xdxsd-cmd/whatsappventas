@@ -1,0 +1,78 @@
+import { mismoTelefono, rentaActiva } from './datos.js';
+
+// Cliente de la API de la página (StreamRent). El bot entra como administrador
+// y usa los mismos endpoints que el panel.
+export function crearClientePagina({ url, usuario, clave, logger }) {
+  let token = null;
+  const base = url.replace(/\/+$/, '');
+
+  async function entrar() {
+    const respuesta = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: usuario, password: clave }),
+    });
+    if (!respuesta.ok) throw new Error(`La página rechazó el inicio de sesión (${respuesta.status})`);
+    token = (await respuesta.json()).token;
+  }
+
+  async function pedir(metodo, ruta, cuerpo, reintento = true) {
+    if (!token) await entrar();
+    const respuesta = await fetch(`${base}${ruta}`, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+    });
+    // La página guarda las sesiones en memoria y expiran en 24 h, o al reiniciarse.
+    if (respuesta.status === 401 && reintento) {
+      token = null;
+      return pedir(metodo, ruta, cuerpo, false);
+    }
+    if (!respuesta.ok) throw new Error(`${metodo} ${ruta} respondió ${respuesta.status}`);
+    return respuesta.json();
+  }
+
+  // Lecturas que cambian poco: se guardan un minuto para no pedirlas en cada mensaje.
+  const cache = new Map();
+  async function conCache(clave, ms, obtener) {
+    const guardado = cache.get(clave);
+    if (guardado && Date.now() - guardado.en < ms) return guardado.valor;
+    const valor = await obtener();
+    cache.set(clave, { valor, en: Date.now() });
+    return valor;
+  }
+
+  return {
+    async servicios() {
+      const lista = await conCache('servicios', 60_000, () => pedir('GET', '/api/admin/services'));
+      return lista.filter((s) => s.active !== false);
+    },
+
+    metodosPago() {
+      return conCache('pagos', 60_000, () => pedir('GET', '/api/admin/payments'));
+    },
+
+    async clientePorTelefono(telefono) {
+      const clientes = await conCache('clientes', 30_000, () => pedir('GET', '/api/admin/clients'));
+      return clientes.find((c) => mismoTelefono(c.phone, telefono)) ?? null;
+    },
+
+    async rentasActivas(clienteId) {
+      const rentas = await conCache('rentas', 30_000, () => pedir('GET', '/api/rentals'));
+      return rentas.filter((r) => r.clientId === clienteId && rentaActiva(r.endDate));
+    },
+
+    crearPedido(pedido) {
+      return pedir('POST', '/api/admin/orders', pedido);
+    },
+
+    actualizarPedido(id, cambios) {
+      return pedir('PUT', `/api/admin/orders/${encodeURIComponent(id)}`, cambios);
+    },
+
+    reportarCaida(reporte) {
+      logger?.info({ plataforma: reporte.platform }, 'Reportando cuenta caída en la página');
+      return pedir('POST', '/api/admin/fallen', reporte);
+    },
+  };
+}

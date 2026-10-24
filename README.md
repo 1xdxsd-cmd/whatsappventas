@@ -6,12 +6,23 @@ Agente de WhatsApp para vender cuentas y perfiles de streaming (Netflix, Disney+
 
 - Se conecta a WhatsApp escaneando un QR y guarda la sesión para no volver a escanear.
 - Se reconecta solo si se cae la conexión.
-- Responde con un menú: ver planes y precios, cómo comprar, hablar con un asesor.
+- Responde con un menú: ver planes y precios, cómo comprar, reportar una cuenta que no funciona, hablar con un asesor.
 - Toma el pedido (servicio + perfil o cuenta completa), envía los datos de transferencia y pide el comprobante.
 - Te avisa a tu número personal de cada pedido nuevo, te reenvía el comprobante y te avisa cuando alguien pide un asesor.
 - Con un asesor, el bot se queda callado hasta que el cliente escribe `menu`.
 
-Los precios son mensuales, en pesos mexicanos, y están en `src/catalogo/servicios.js`. El estado de cada conversación vive en memoria y se pierde al reiniciar; la base de datos llega en la fase 3.
+## Conexión con tu página (StreamRent)
+
+Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a tu página como administrador y:
+
+- Toma de **Servicios** el catálogo y los precios (solo los activos), y de **Métodos de pago** los datos de transferencia.
+- Reconoce al cliente por el teléfono guardado en su ficha (compara los últimos 10 dígitos) y lo saluda por su nombre.
+- Guarda cada pedido en **Pedidos**, con el teléfono y una nota, y la actualiza cuando llega el comprobante.
+- Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
+
+Si la página no responde o no está configurada, el bot sigue funcionando con el catálogo de `src/catalogo/servicios.js` (precios mensuales en pesos mexicanos) y `DATOS_TRANSFERENCIA`, pero no guarda pedidos ni reportes.
+
+El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
 ## Cómo correrlo
 
@@ -42,6 +53,7 @@ Baileys no es oficial y WhatsApp puede bloquear números que se comportan como b
 | Carpeta | Qué hace |
 | --- | --- |
 | `src/whatsapp/` | Conexión con Baileys, QR, reconexión y cola de envío. Único lugar que conoce Baileys |
-| `src/bot/` | Conversación: menú, catálogo, pedido y comprobante, como función pura y probada |
-| `src/catalogo/` | Servicios y precios |
+| `src/bot/` | Conversación: menú, catálogo, pedido, comprobante y reportes, como función pura y probada |
+| `src/catalogo/` | Catálogo de respaldo y cómo se muestra |
+| `src/pagina/` | Conexión con la API de tu página |
 | `src/sesiones.js` | Estado de cada conversación (en memoria por ahora) |
