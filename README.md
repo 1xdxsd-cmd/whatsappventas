@@ -11,7 +11,7 @@ Agente de WhatsApp para vender cuentas y perfiles de streaming (Netflix, Disney+
 - Te avisa a tu número personal de cada pedido nuevo, te reenvía el comprobante y te avisa cuando alguien pide un asesor.
 - Con un asesor, el bot se queda callado hasta que el cliente escribe `menu`.
 
-Los precios están en `src/catalogo/servicios.js`. El estado de cada conversación vive en memoria y se pierde al reiniciar; la base de datos llega en la fase 3.
+Los precios son mensuales, en pesos mexicanos, y están en `src/catalogo/servicios.js`. El estado de cada conversación vive en memoria y se pierde al reiniciar; la base de datos llega en la fase 3.
 
 ## Cómo correrlo
 

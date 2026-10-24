@@ -1,4 +1,4 @@
-// Precios mensuales por servicio. "perfil" es un perfil dentro de una cuenta
+// Precios mensuales por servicio, en pesos mexicanos. "perfil" es un perfil dentro de una cuenta
 // compartida; "completa" es la cuenta entera para un solo cliente.
 export const SERVICIOS = [
   { id: 'netflix', nombre: 'Netflix', precios: { perfil: 80, completa: 200 } },

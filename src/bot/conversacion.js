@@ -38,7 +38,7 @@ function textoCatalogo(moneda) {
     return `*${i + 1}.* ${servicio.nombre}: perfil ${perfil}, cuenta completa ${completa}`;
   });
   return [
-    '*Planes mensuales*',
+    '*Planes mensuales (pesos mexicanos)*',
     '',
     ...lineas,
     '',
