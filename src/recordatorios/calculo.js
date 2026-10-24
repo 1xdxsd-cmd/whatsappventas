@@ -82,3 +82,27 @@ export function recordatoriosPendientes({ clientes, rentas, enviados, ahora = ne
   }
   return resultado;
 }
+
+/**
+ * Resumen del día para los admins: todas las rentas activas que vencen en
+ * DIAS_DE_AVISO días o menos, de la más próxima a la más lejana, con el cliente
+ * y su teléfono. Sale una vez al día (clave `admins:<fecha>`).
+ * @returns {{ clave: string, texto: string } | null} null si ya salió hoy o no vence nada.
+ */
+export function resumenParaAdmins({ clientes, rentas, enviados, ahora = new Date() }) {
+  const { fecha } = fechaHoraMexico(ahora);
+  const clave = `admins:${fecha}`;
+  if (enviados.has(clave)) return null;
+  const porId = new Map(clientes.map((c) => [c.id, c]));
+  const porVencer = rentasPorVencer(rentas, ahora).sort((a, b) => String(a.endDate).localeCompare(String(b.endDate)));
+  if (porVencer.length === 0) return { clave, texto: null };
+  const lineas = porVencer.map((renta) => {
+    const cliente = porId.get(renta.clientId);
+    const quien = cliente ? `${cliente.name}${cliente.phone ? ` (${cliente.phone})` : ' (sin teléfono)'}` : renta.clientName || 'Cliente sin ficha';
+    return `${lineaDeVencimiento(renta, ahora)}: ${quien}`;
+  });
+  return {
+    clave,
+    texto: [`📅 *Cuentas por vencer* (${porVencer.length})`, '', ...lineas].join('\n'),
+  };
+}

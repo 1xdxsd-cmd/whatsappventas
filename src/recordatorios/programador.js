@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { enHorarioDeAvisos, recordatoriosPendientes } from './calculo.js';
+import { enHorarioDeAvisos, recordatoriosPendientes, resumenParaAdmins } from './calculo.js';
 
 const CADA = 10 * 60 * 1000; // revisa cada 10 minutos: los avisos salen poco después de las 12 pm
 const PAUSA_ENTRE_CLIENTES = 20_000; // mensajes que el bot inicia: más espaciados para cuidar el número
@@ -33,6 +33,13 @@ export function iniciarRecordatorios({ pagina, conexion, archivo, avisarAdmin, n
     try {
       const enviados = await leerEnviados(archivo);
       const [clientes, rentas] = await Promise.all([pagina.clientes(), pagina.rentas()]);
+      // Primero el resumen para los admins (a todos), una vez al día.
+      const resumen = resumenParaAdmins({ clientes, rentas, enviados: new Set(Object.keys(enviados)) });
+      if (resumen) {
+        if (resumen.texto) await avisarAdmin(resumen.texto);
+        enviados[resumen.clave] = new Date().toISOString();
+        await guardarEnviados(archivo, enviados);
+      }
       const pendientes = recordatoriosPendientes({ clientes, rentas, enviados: new Set(Object.keys(enviados)), negocio });
       const avisados = [];
       for (const pendiente of pendientes) {

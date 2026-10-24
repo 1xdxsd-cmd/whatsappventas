@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diasParaVencer, enHorarioDeAvisos, recordatoriosPendientes } from '../src/recordatorios/calculo.js';
+import { diasParaVencer, enHorarioDeAvisos, recordatoriosPendientes, resumenParaAdmins } from '../src/recordatorios/calculo.js';
 
 // 24 de octubre de 2026, 12:05 pm en la Ciudad de México.
 const ahora = new Date('2026-10-24T12:05:00-06:00');
@@ -59,4 +59,25 @@ test('al renovar, deja de avisar hasta que la nueva fecha esté cerca', () => {
   assert.deepEqual(recordatoriosPendientes({ clientes, rentas: renovada, enviados: new Set(), ahora }), []);
   const despues = new Date('2026-11-23T12:30:00-06:00');
   assert.deepEqual(recordatoriosPendientes({ clientes, rentas: renovada, enviados: new Set(), ahora: despues })[0].claves, ['r1:2026-11-26:2026-11-23']);
+});
+
+test('resumen diario para los admins con quién vence y cuándo', () => {
+  const ahora = new Date('2026-11-03T18:00:00Z'); // 12 pm en México
+  const clientes = [
+    { id: 'c1', name: 'Laura', phone: '5512345678' },
+    { id: 'c2', name: 'Pedro', phone: null },
+  ];
+  const rentas = [
+    { id: 'r1', clientId: 'c1', platform: 'netflix', type: 'perfil', email: 'a@x.com', endDate: '2026-11-05' },
+    { id: 'r2', clientId: 'c2', platform: 'disney', type: 'cuenta', endDate: '2026-11-03' },
+    { id: 'r3', clientId: 'c1', platform: 'hbo', type: 'perfil', endDate: '2026-12-20' },
+  ];
+  const resumen = resumenParaAdmins({ clientes, rentas, enviados: new Set(), ahora });
+  assert.equal(resumen.clave, 'admins:2026-11-03');
+  const lineas = resumen.texto.split('\n');
+  assert.equal(lineas[0], '📅 *Cuentas por vencer* (2)');
+  assert.match(lineas[2], /Disney.*vence \*hoy\*.*: Pedro \(sin teléfono\)/);
+  assert.match(lineas[3], /Netflix.*a@x\.com.*vence en 2 días.*: Laura \(5512345678\)/);
+  assert.equal(resumenParaAdmins({ clientes, rentas, enviados: new Set(['admins:2026-11-03']), ahora }), null);
+  assert.deepEqual(resumenParaAdmins({ clientes, rentas: [rentas[2]], enviados: new Set(), ahora }), { clave: 'admins:2026-11-03', texto: null });
 });
