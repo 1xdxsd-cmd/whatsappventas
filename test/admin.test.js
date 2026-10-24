@@ -28,6 +28,12 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
     completarPedido: async (...a) => llamadas.push(['completarPedido', ...a]),
     actualizarPedido: async (...a) => llamadas.push(['actualizarPedido', ...a]),
     actualizarCaida: async (...a) => llamadas.push(['actualizarCaida', ...a]),
+    ajustarSaldo: async (...a) => {
+      llamadas.push(['ajustarSaldo', ...a]);
+      if (fallar.saldo) throw new Error('400');
+      return { balance: 250 };
+    },
+    olvidarCache: () => {},
   };
   const cobros = {
     entregarPagado: async (pedido) => {
@@ -147,4 +153,34 @@ test('lista los casos abiertos', () => {
   const casos = crearRegistroDeCasos();
   casos.abrir({ nombre: 'Laura', tipo: 'pedido', resumen: 'Netflix, perfil' });
   assert.equal(textoCasos(casos.abiertos()), '*Casos abiertos*\n\n#1 Laura: pedido (Netflix, perfil)');
+});
+
+const recarga = { jid: CLIENTE, telefono: '5215512345678', nombre: 'Laura', cliente: { id: 'client-1', nombre: 'Laura' }, tipo: 'recarga', monto: 200, resumen: 'Recarga de crédito de $200' };
+
+test('/aprobar de una recarga suma el crédito y le avisa al cliente', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(recarga);
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`));
+  const [, id, monto] = p.llamadas.find(([n]) => n === 'ajustarSaldo');
+  assert.deepEqual([id, monto], ['client-1', 200]);
+  assert.match(p.alCliente()[0], /Recargamos \$200 a tu crédito; ahora tienes \*\$250\*/);
+  assert.equal(p.casos.obtener(caso.id).abierto, false);
+  assert.match(p.alAdmin()[0], /recargado/);
+});
+
+test('si la página no suma la recarga, no le dice nada al cliente', async () => {
+  const p = preparar({ fallar: { saldo: true } });
+  const caso = p.casos.abrir(recarga);
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`));
+  assert.deepEqual(p.alCliente(), []);
+  assert.match(p.alAdmin()[0], /No pude sumar el crédito/);
+  assert.equal(p.casos.obtener(caso.id).abierto, true);
+});
+
+test('/rechazar de una recarga deja al cliente mandar otro comprobante', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(recarga);
+  await p.admin.manejar(texto(`/rechazar ${caso.id} monto incompleto`));
+  assert.equal(p.estadosGuardados.get(CLIENTE).recarga, true);
+  assert.equal(p.estadosGuardados.get(CLIENTE).paso, 'pago');
 });

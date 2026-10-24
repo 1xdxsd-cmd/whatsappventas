@@ -13,6 +13,9 @@ export const ESTADO_INICIAL = { paso: 'inicio' };
 const PALABRAS_MENU = ['menu', 'inicio'];
 const PALABRAS_CUENTA = ['usuario', 'contrasena', 'clave', 'olvide mi contrasena', 'olvide mi clave', 'olvide mi usuario'];
 export const LARGO_MINIMO_CLAVE = 6;
+const PALABRAS_RECARGA = ['recargar', 'recarga', 'saldo', 'credito', 'mi credito', 'mi saldo', 'agregar saldo', 'recargar saldo', 'recargar credito'];
+export const RECARGA_MINIMA = 50;
+const RECARGA_MAXIMA = 20000;
 
 function normalizar(texto) {
   return (texto ?? '')
@@ -32,6 +35,7 @@ function textoMenu() {
     '*4.* Cómo comprar',
     '*5.* Hablar con un asesor',
     '*6.* Mi usuario o contraseña de la página',
+    '*7.* Recargar crédito',
   ].join('\n');
 }
 
@@ -153,6 +157,9 @@ export function procesarMensaje(mensaje, estado, contexto) {
   if (texto === 'renovar' && estado.paso !== 'asesor') {
     return iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida);
   }
+  if (PALABRAS_RECARGA.includes(texto) && !['asesor', 'nueva-clave'].includes(estado.paso)) {
+    return iniciarRecarga(cliente, paginaCaida, moneda);
+  }
   if (PALABRAS_CUENTA.includes(texto) && !['asesor', 'nueva-clave'].includes(estado.paso)) {
     return iniciarCuenta(cliente, paginaCaida, enlacePagina);
   }
@@ -168,6 +175,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (texto === '4') return menu([textoComoComprar(), textoMenu()]);
       if (texto === '5') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
       if (texto === '6') return iniciarCuenta(cliente, paginaCaida, enlacePagina);
+      if (texto === '7') return iniciarRecarga(cliente, paginaCaida, moneda);
       return menu([`No entendí tu respuesta. ${textoMenu()}`]);
 
     case 'catalogo': {
@@ -217,7 +225,10 @@ export function procesarMensaje(mensaje, estado, contexto) {
           respuestas: ['¡Recibimos tu comprobante! Lo revisamos y te enviamos los datos de acceso por aquí.'],
           estado: { ...estado, paso: 'revision' },
           acciones: [{ tipo: 'comprobanteRecibido' }],
-          aviso: { texto: `Comprobante recibido para: ${estado.resumen}. Revísalo y entrega la cuenta.`, reenviar: true },
+          aviso: {
+            texto: `Comprobante recibido para: ${estado.resumen}. ${estado.recarga ? 'Revísalo; al aprobarlo se le suma el crédito.' : 'Revísalo y entrega la cuenta.'}`,
+            reenviar: true,
+          },
         };
       }
       if (estado.paso === 'revision') {
@@ -260,6 +271,28 @@ export function procesarMensaje(mensaje, estado, contexto) {
       };
     }
 
+    case 'recarga': {
+      if (texto === '0') return menu();
+      const monto = leerMonto(texto);
+      if (!cliente?.id) return menu();
+      if (monto === null || monto < RECARGA_MINIMA || monto > RECARGA_MAXIMA) {
+        return {
+          respuestas: [`Escribe solo el monto en pesos, de ${formatearPrecio(RECARGA_MINIMA, moneda)} a ${formatearPrecio(RECARGA_MAXIMA, moneda)} (por ejemplo: 200), o *0* para volver al menú.`],
+          estado,
+        };
+      }
+      const resumen = `Recarga de crédito de ${formatearPrecio(monto, moneda)}`;
+      return {
+        respuestas: [
+          `Perfecto: *${resumen}*.`,
+          `Haz la transferencia a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*. Cuando lo confirmemos, el crédito aparece en tu cuenta de la página.`,
+        ],
+        estado: { paso: 'pago', resumen, recarga: true },
+        acciones: [{ tipo: 'crearRecarga', monto, resumen }],
+        aviso: { texto: `Quiere recargar crédito: ${formatearPrecio(monto, moneda)}. Esperando comprobante.` },
+      };
+    }
+
     case 'cuenta':
       if (texto === '0') return menu();
       if (texto === '1' && cliente?.id) {
@@ -298,6 +331,32 @@ function sinAccesoALaPagina(queQuiere) {
     respuestas: ['En este momento no puedo consultar tus cuentas. Un asesor te escribirá en breve por aquí.'],
     estado: { paso: 'asesor' },
     aviso: { texto: `Un cliente quiere ${queQuiere}, pero el bot no pudo conectarse a la página. Revisa PAGINA_URL y que la página esté encendida.` },
+  };
+}
+
+// Acepta "200", "$200", "200 pesos" o "1,500".
+function leerMonto(texto) {
+  const limpio = texto.replace(/[$,\s]|pesos|mxn/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(limpio)) return null;
+  return Number(limpio);
+}
+
+// El crédito vive en la cuenta de la página, así que solo se recarga a clientes
+// registrados (el teléfono identifica la cuenta, igual que en la recuperación).
+function iniciarRecarga(cliente, paginaCaida, moneda) {
+  if (paginaCaida) return sinAccesoALaPagina('recargar crédito');
+  if (!cliente?.id) {
+    return {
+      respuestas: ['Para recargar crédito necesitas una cuenta en la página con este número de WhatsApp. Un asesor te escribirá en breve para ayudarte.'],
+      estado: { paso: 'asesor' },
+      aviso: { texto: 'Un cliente quiere recargar crédito, pero su número no está registrado en la página.' },
+    };
+  }
+  return {
+    respuestas: [
+      `Tienes *${formatearPrecio(Number(cliente.saldo) || 0, moneda)}* de crédito. ¿Cuánto quieres recargar? Escribe el monto (mínimo ${formatearPrecio(RECARGA_MINIMA, moneda)}), o *0* para volver al menú.`,
+    ],
+    estado: { paso: 'recarga' },
   };
 }
 

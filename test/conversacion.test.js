@@ -282,3 +282,35 @@ test('mensajes del cambio de contraseña no incluyen la contraseña', () => {
   const mal = textoCambioDeClave(false, conCuenta.cliente);
   assert.equal(mal.estado.paso, 'asesor');
 });
+
+const conSaldo = { ...contextoBase, cliente: { id: 'c1', nombre: 'Ana', usuario: 'ana23', saldo: 30 } };
+
+test('recargar crédito: muestra el saldo y pide el monto', () => {
+  const r = procesarMensaje({ texto: '7' }, { paso: 'menu' }, conSaldo);
+  assert.equal(r.estado.paso, 'recarga');
+  assert.match(r.respuestas[0], /\$30/);
+  assert.equal(procesarMensaje({ texto: 'Saldo' }, { paso: 'catalogo' }, conSaldo).estado.paso, 'recarga');
+});
+
+test('recargar crédito: con un monto válido pide la transferencia y crea la recarga', () => {
+  const r = procesarMensaje({ texto: '$1,500 pesos' }, { paso: 'recarga' }, conSaldo);
+  assert.deepEqual(r.acciones, [{ tipo: 'crearRecarga', monto: 1500, resumen: 'Recarga de crédito de $1500' }]);
+  assert.deepEqual(r.estado, { paso: 'pago', resumen: 'Recarga de crédito de $1500', recarga: true });
+  assert.match(r.respuestas[1], /Banco X/);
+  const comprobante = procesarMensaje({ tieneComprobante: true }, r.estado, conSaldo);
+  assert.match(comprobante.aviso.texto, /se le suma el crédito/);
+});
+
+test('recargar crédito: rechaza montos inválidos o muy chicos', () => {
+  for (const malo of ['diez', '10', '-200']) {
+    const r = procesarMensaje({ texto: malo }, { paso: 'recarga' }, conSaldo);
+    assert.equal(r.estado.paso, 'recarga');
+    assert.equal(r.acciones, undefined);
+  }
+});
+
+test('recargar crédito sin cuenta en la página pasa a un asesor', () => {
+  const r = procesarMensaje({ texto: 'recargar' }, { paso: 'menu' }, contextoBase);
+  assert.equal(r.estado.paso, 'asesor');
+  assert.match(r.aviso.texto, /recargar crédito/);
+});

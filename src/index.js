@@ -108,6 +108,10 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
           : null;
         caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, resumen: accion.motivo, caidaId: reporte?.id ?? null });
       }
+      if (accion.tipo === 'crearRecarga' && contexto.cliente) {
+        caso = casos.abrir({ ...datosCliente, tipo: 'recarga', monto: accion.monto, resumen: accion.resumen });
+        estado = { ...estado, casoId: caso.id };
+      }
       if (accion.tipo === 'cambiarClave' && contexto.cliente) {
         let ok = false;
         try {
@@ -149,6 +153,7 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
 
 const PISTAS = {
   pedido: (id) => `Cuando confirmes el pago: /aprobar ${id} (o /rechazar ${id} motivo).`,
+  recarga: (id) => `Cuando confirmes el pago: /aprobar ${id} suma el crédito (o /rechazar ${id} motivo).`,
   reporte: (id) => `Respóndele con #${id} texto y al terminar /resuelto ${id} texto.`,
 };
 
@@ -184,6 +189,7 @@ const admin = crearAtencionAdmin({
   casos,
   estados: { obtener: obtenerEstado, guardar: guardarEstado },
   logger,
+  moneda: config.moneda,
 });
 
 // WhatsApp dice cuál es el chat real del admin (con o sin el "1" de celular).

@@ -1,10 +1,10 @@
-import { nombrePlataforma } from '../catalogo/servicios.js';
+import { formatearPrecio, nombrePlataforma } from '../catalogo/servicios.js';
 import { leerMensaje } from '../whatsapp/conexion.js';
 import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
 
 // Atiende los mensajes que Anthony le escribe al bot: comandos y chat con
 // clientes que pidieron un asesor.
-export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, logger }) {
+export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, logger, moneda = '$' }) {
   let chatActivo = null; // número de caso cuyo cliente recibe lo que escribe Anthony
   let chatAdmin = null; // se responde en el mismo chat desde el que escribió Anthony
 
@@ -20,7 +20,24 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     estados.guardar(caso.jid, { paso: 'menu' });
   }
 
+  async function aprobarRecarga(caso) {
+    if (!pagina) return responder(`El bot no está conectado a la página. Súmale el crédito a mano y avísale con #${caso.id} texto.`);
+    let saldo;
+    try {
+      ({ balance: saldo } = await pagina.ajustarSaldo(caso.cliente.id, caso.monto, `Recarga por WhatsApp (transferencia, caso #${caso.id})`));
+    } catch (error) {
+      logger.error({ err: error, caso: caso.id }, 'No se pudo sumar la recarga');
+      return responder(`⚠️ No pude sumar el crédito en la página para #${caso.id} (${error.message}). No le dije nada al cliente; revisa su saldo antes de intentarlo de nuevo.`);
+    }
+    pagina.olvidarCache();
+    await conexion.enviarTexto(caso.jid, `✅ Pago confirmado. Recargamos ${formatearPrecio(caso.monto, moneda)} a tu crédito; ahora tienes *${formatearPrecio(saldo, moneda)}*.`);
+    casos.cerrar(caso.id);
+    devolverAlBot(caso);
+    return responder(`✓ #${caso.id} recargado: +${formatearPrecio(caso.monto, moneda)}, saldo ${formatearPrecio(saldo, moneda)}.`);
+  }
+
   async function aprobar(caso) {
+    if (caso.tipo === 'recarga') return aprobarRecarga(caso);
     if (caso.tipo !== 'pedido') return responder(`#${caso.id} no es un pedido.`);
     if (!pagina) return responder(`El bot no está conectado a la página. Envíale los datos con #${caso.id} texto.`);
     let entrega;
@@ -64,14 +81,14 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
   }
 
   async function rechazar(caso, motivo) {
-    if (caso.tipo !== 'pedido') return responder(`#${caso.id} no es un pedido.`);
+    if (caso.tipo !== 'pedido' && caso.tipo !== 'recarga') return responder(`#${caso.id} no es un pedido.`);
     const razon = motivo || 'no pudimos confirmar el pago';
     await conexion.enviarTexto(
       caso.jid,
       `No pudimos confirmar tu pago: ${razon}. Si crees que es un error, envía de nuevo el comprobante o escribe *asesor*.`,
     );
     // El cliente puede volver a mandar el comprobante.
-    estados.guardar(caso.jid, { paso: 'pago', resumen: caso.resumen, casoId: caso.id, pedidoId: caso.pedidoId, notas: caso.notas });
+    estados.guardar(caso.jid, { paso: 'pago', resumen: caso.resumen, casoId: caso.id, pedidoId: caso.pedidoId, notas: caso.notas, recarga: caso.tipo === 'recarga' });
     if (pagina && caso.pedidoId) {
       await pagina.actualizarPedido(caso.pedidoId, { notes: `${caso.notas ?? ''} Rechazado: ${razon}.`.trim() }).catch(() => {});
     }

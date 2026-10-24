@@ -6,7 +6,7 @@ Agente de WhatsApp para vender cuentas y perfiles de streaming (Netflix, Disney+
 
 - Se conecta a WhatsApp escaneando un QR y guarda la sesión para no volver a escanear.
 - Se reconecta solo si se cae la conexión.
-- Responde con un menú: ver planes y precios, renovar una cuenta, reportar una cuenta que no funciona, cómo comprar, hablar con un asesor, recuperar el usuario o la contraseña de la página.
+- Responde con un menú: ver planes y precios, renovar una cuenta, reportar una cuenta que no funciona, cómo comprar, hablar con un asesor, recuperar el usuario o la contraseña de la página, recargar crédito.
 - Toma el pedido (servicio + perfil o cuenta completa), envía los datos de transferencia y pide el comprobante.
 - Te avisa a tu número personal de cada pedido nuevo, te reenvía el comprobante y te avisa cuando alguien pide un asesor.
 - Con un asesor, el bot se queda callado hasta que el cliente escribe `menu`.
@@ -21,6 +21,7 @@ Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a
 - Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
 - Cobra con el **crédito** del cliente: si su saldo alcanza, al comprar o renovar puede elegir pagar con crédito o por transferencia. El bot descuenta el saldo, crea o extiende la renta (asignando una cuenta libre como el portal) y registra la venta. Si algo falla después de descontar, devuelve el crédito y te avisa.
 - Ayuda a **recuperar el acceso a la página** (opción 6, o escribiendo *usuario*, *contraseña* o *clave*): si el cliente escribe desde el teléfono guardado en su ficha, el bot le dice su usuario y le deja poner una contraseña nueva (mínimo 6 caracteres). El teléfono es la prueba de identidad: desde otro número no le dice nada y te avisa. La contraseña actual nunca se envía (la página solo guarda su huella), y te llega un aviso de cada cambio. Con `PAGINA_ENLACE` el bot también le da la dirección de la página.
+- **Recarga crédito** sin comprar (opción 7, o escribiendo *recargar* o *saldo*): el cliente ve su saldo, escribe el monto (mínimo $50), paga por transferencia y manda el comprobante. Con `/aprobar N` el bot suma el crédito en la página y le avisa al cliente su saldo nuevo. Solo para clientes registrados con ese teléfono.
 - Manda **recordatorios de vencimiento** todos los días a las 12 pm (hora de la Ciudad de México) desde 3 días antes de que venza la cuenta, en un mensaje por cliente. Si a esa hora el bot estaba apagado, el aviso del día sale en cuanto vuelve (hasta las 8 pm). Además, cuando el cliente escribe, el saludo le recuerda las cuentas que vencen en 3 días o menos. El cliente responde *renovar*, elige la cuenta y paga el precio de su renta. Te llega un resumen de a quién se avisó. Los avisos enviados se guardan en `datos/recordatorios.json` para no repetirlos.
 
 Si la página no responde o no está configurada, el bot sigue funcionando con el catálogo de `src/catalogo/servicios.js` (precios mensuales en pesos mexicanos) y `DATOS_TRANSFERENCIA`, pero no guarda pedidos ni reportes.

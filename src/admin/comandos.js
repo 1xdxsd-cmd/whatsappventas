@@ -4,7 +4,7 @@ export const AYUDA = [
   '*Comandos de admin*',
   '',
   '*#12 texto*: envía ese texto al cliente del caso 12 (sirve para mandar cuentas o responder reportes)',
-  '*/aprobar 12*: confirma el pago, entrega la cuenta (o renueva) y pasa el pedido a Ventas',
+  '*/aprobar 12*: confirma el pago, entrega la cuenta (o renueva) y pasa el pedido a Ventas; en una recarga, suma el crédito',
   '*/rechazar 12 motivo*: avisa al cliente que no se confirmó el pago',
   '*/resuelto 12 texto*: marca el reporte como resuelto en la página y le manda el texto al cliente',
   '*/chat 12*: lo que escribas después le llega al cliente del caso 12, y lo que él escriba te llega a ti',
@@ -60,7 +60,7 @@ export function crearRegistroDeCasos() {
   };
 }
 
-const NOMBRE_TIPO = { pedido: 'pedido', reporte: 'reporte', asesor: 'chat con asesor', entrega: 'entrega pendiente' };
+const NOMBRE_TIPO = { pedido: 'pedido', recarga: 'recarga de crédito', reporte: 'reporte', asesor: 'chat con asesor', entrega: 'entrega pendiente' };
 
 export function textoCasos(casos) {
   if (casos.length === 0) return 'No hay casos abiertos.';
