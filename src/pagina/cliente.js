@@ -28,7 +28,12 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       token = null;
       return pedir(metodo, ruta, cuerpo, false);
     }
-    if (!respuesta.ok) throw new Error(`${metodo} ${ruta} respondió ${respuesta.status}`);
+    if (!respuesta.ok) {
+      const detalle = await respuesta.json().catch(() => ({}));
+      const error = new Error(`${metodo} ${ruta} respondió ${respuesta.status}${detalle.error ? `: ${detalle.error}` : ''}`);
+      error.estado = respuesta.status;
+      throw error;
+    }
     return respuesta.json();
   }
 
@@ -76,6 +81,32 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
 
     actualizarPedido(id, cambios) {
       return pedir('PUT', `/api/admin/orders/${encodeURIComponent(id)}`, cambios);
+    },
+
+    // Tras mover crédito o rentas, la siguiente lectura debe ver los datos nuevos.
+    olvidarCache() {
+      cache.clear();
+    },
+
+    // La página rechaza con 400 si el saldo quedaría negativo.
+    ajustarSaldo(clienteId, monto, nota) {
+      return pedir('POST', `/api/admin/clients/${encodeURIComponent(clienteId)}/balance`, { amount: monto, note: nota });
+    },
+
+    cuentas() {
+      return pedir('GET', '/api/admin/accounts');
+    },
+
+    crearRenta(renta) {
+      return pedir('POST', '/api/rentals', renta);
+    },
+
+    actualizarRenta(id, cambios) {
+      return pedir('PUT', `/api/rentals/${encodeURIComponent(id)}`, cambios);
+    },
+
+    registrarVenta(venta) {
+      return pedir('POST', '/api/admin/sales', venta);
     },
 
     reportarCaida(reporte) {

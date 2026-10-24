@@ -1,8 +1,9 @@
 import pino from 'pino';
-import { procesarMensaje } from './bot/conversacion.js';
+import { procesarMensaje, textoCobroConCredito } from './bot/conversacion.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
+import { crearCobrosConCredito } from './pagina/credito.js';
 import { textoMetodosPago } from './pagina/datos.js';
 import { iniciarRecordatorios } from './recordatorios/programador.js';
 import { obtenerEstado, guardarEstado } from './sesiones.js';
@@ -19,6 +20,7 @@ if (process.env.NUMERO_BOT && !config.numeroBot) {
 }
 
 const pagina = config.pagina ? crearClientePagina({ ...config.pagina, logger }) : null;
+const cobros = pagina ? crearCobrosConCredito({ pagina, logger }) : null;
 if (!pagina) {
   logger.warn('PAGINA_URL no está configurada: uso el catálogo de respaldo y no se guardan pedidos ni reportes.');
 }
@@ -50,7 +52,7 @@ async function cargarContexto(telefono) {
     const datosPago = textoMetodosPago(metodos);
     if (datosPago) contexto.datosPago = datosPago;
     if (cliente) {
-      contexto.cliente = { id: cliente.id, nombre: cliente.name };
+      contexto.cliente = { id: cliente.id, nombre: cliente.name, saldo: Number(cliente.balance) || 0 };
       // Orden fijo para que el número que elige el cliente no cambie entre mensajes.
       contexto.rentas = (await pagina.rentasActivas(cliente.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     }
@@ -63,11 +65,28 @@ async function cargarContexto(telefono) {
   return contexto;
 }
 
-// Ejecuta en la página lo que pidió la conversación y devuelve el estado
-// con los datos que hay que recordar (por ejemplo, el id del pedido).
+// Ejecuta en la página lo que pidió la conversación. Devuelve el estado con
+// los datos que hay que recordar (por ejemplo, el id del pedido) y los
+// mensajes y avisos que dependen del resultado (por ejemplo, el cobro con crédito).
 async function ejecutarAcciones(acciones, { estado, contexto, telefono, nombreWhatsApp }) {
-  if (!pagina) return estado;
+  const respuestas = [];
+  const avisos = [];
+  if (!pagina) return { estado, respuestas, avisos };
   for (const accion of acciones) {
+    if (accion.tipo === 'pagarConCredito') {
+      if (!contexto.cliente) continue;
+      const resultado = await cobros.pagar({
+        cliente: contexto.cliente,
+        servicio: accion.servicio,
+        resumen: accion.resumen,
+        renta: accion.renta ?? undefined,
+      });
+      const textos = textoCobroConCredito(resultado, { resumen: accion.resumen, moneda: config.moneda });
+      respuestas.push(...textos.respuestas);
+      avisos.push(textos.aviso);
+      if (textos.estado) estado = textos.estado;
+      continue;
+    }
     try {
       if (accion.tipo === 'crearPedido') {
         const notas = `Pedido por WhatsApp: ${accion.resumen}. Esperando comprobante.`;
@@ -98,38 +117,58 @@ async function ejecutarAcciones(acciones, { estado, contexto, telefono, nombreWh
       logger.error({ err: error, accion: accion.tipo }, 'No se pudo guardar en la página');
     }
   }
-  return estado;
+  return { estado, respuestas, avisos };
+}
+
+// Los mensajes de un mismo chat se procesan de uno en uno, para que dos
+// mensajes seguidos no avancen la conversación (o cobren) dos veces a la vez.
+const colasPorChat = new Map();
+function enOrdenPorChat(jid, tarea) {
+  const anterior = colasPorChat.get(jid) ?? Promise.resolve();
+  const actual = anterior.then(tarea, tarea);
+  colasPorChat.set(jid, actual);
+  actual.finally(() => {
+    if (colasPorChat.get(jid) === actual) colasPorChat.delete(jid);
+  });
+  return actual;
 }
 
 const conexion = crearConexion({
   carpetaSesion: config.carpetaSesion,
   numeroBot: config.numeroBot,
   logger,
-  async alRecibir(mensaje) {
-    const jid = mensaje.key.remoteJid;
-    const telefono = numeroCliente(mensaje.key);
-    const contexto = await cargarContexto(telefono);
-    const resultado = procesarMensaje(leerMensaje(mensaje), obtenerEstado(jid), contexto);
-    const estado = await ejecutarAcciones(resultado.acciones ?? [], {
-      estado: resultado.estado,
-      contexto,
-      telefono,
-      nombreWhatsApp: mensaje.pushName,
-    });
-    guardarEstado(jid, estado);
-
-    await conexion.marcarLeido(mensaje);
-    for (const respuesta of resultado.respuestas) {
-      await conexion.enviarTexto(jid, respuesta);
-    }
-
-    if (resultado.aviso && config.jidAdmin) {
-      const quien = contexto.cliente ? `${contexto.cliente.nombre} (${telefono})` : telefono;
-      await conexion.enviarTexto(config.jidAdmin, `🔔 Cliente ${quien}: ${resultado.aviso.texto}`);
-      if (resultado.aviso.reenviar) await conexion.reenviar(config.jidAdmin, mensaje);
-    }
+  alRecibir(mensaje) {
+    return enOrdenPorChat(mensaje.key.remoteJid, () => atender(mensaje));
   },
 });
+
+async function atender(mensaje) {
+  const jid = mensaje.key.remoteJid;
+  const telefono = numeroCliente(mensaje.key);
+  const contexto = await cargarContexto(telefono);
+  const resultado = procesarMensaje(leerMensaje(mensaje), obtenerEstado(jid), contexto);
+  const ejecutado = await ejecutarAcciones(resultado.acciones ?? [], {
+    estado: resultado.estado,
+    contexto,
+    telefono,
+    nombreWhatsApp: mensaje.pushName,
+  });
+  guardarEstado(jid, ejecutado.estado);
+
+  await conexion.marcarLeido(mensaje);
+  for (const respuesta of [...resultado.respuestas, ...ejecutado.respuestas]) {
+    await conexion.enviarTexto(jid, respuesta);
+  }
+
+  const avisos = [resultado.aviso, ...ejecutado.avisos].filter(Boolean);
+  if (avisos.length > 0 && config.jidAdmin) {
+    const quien = contexto.cliente ? `${contexto.cliente.nombre} (${telefono})` : telefono;
+    for (const aviso of avisos) {
+      await conexion.enviarTexto(config.jidAdmin, `🔔 Cliente ${quien}: ${aviso.texto}`);
+      if (aviso.reenviar) await conexion.reenviar(config.jidAdmin, mensaje);
+    }
+  }
+}
 
 if (pagina) {
   // Prueba al arrancar para saber de inmediato si PAGINA_URL es correcta.

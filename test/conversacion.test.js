@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ESTADO_INICIAL, procesarMensaje } from '../src/bot/conversacion.js';
+import { ESTADO_INICIAL, procesarMensaje, textoCobroConCredito } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 
 const contextoBase = { moneda: '$', servicios: SERVICIOS_BASE, datosPago: 'Banco X\nCuenta 123' };
@@ -161,4 +161,55 @@ test('si la página no responde, no dice que el cliente no está registrado', ()
     assert.match(resultado.aviso.texto, /no pudo conectarse a la página/);
     assert.doesNotMatch(resultado.aviso.texto, /no está registrado/);
   }
+});
+
+const conCredito = { ...conRentas, cliente: { nombre: 'Laura', saldo: 300 } };
+
+test('con crédito suficiente deja elegir entre crédito y transferencia', () => {
+  const resultado = conversar(conCredito, 'hola', '1', '1', '2');
+  assert.equal(resultado.estado.paso, 'forma-pago');
+  assert.match(resultado.respuestas[1], /Tienes \*\$300\* de crédito/);
+  assert.match(resultado.respuestas[1], /Con mi crédito \(te quedan \$100\)/);
+  assert.equal(resultado.acciones, undefined);
+});
+
+test('elegir crédito pide el cobro al servidor', () => {
+  const resultado = conversar(conCredito, 'hola', '1', '1', '2', '1');
+  assert.deepEqual(resultado.respuestas, []);
+  assert.equal(resultado.acciones[0].tipo, 'pagarConCredito');
+  assert.equal(resultado.acciones[0].servicio.price, 200);
+  assert.equal(resultado.acciones[0].renta, null);
+});
+
+test('renovar con crédito lleva la renta al cobro', () => {
+  const resultado = conversar(conCredito, 'renovar', '1', '1');
+  assert.equal(resultado.acciones[0].tipo, 'pagarConCredito');
+  assert.equal(resultado.acciones[0].renta.id, 'r1');
+  assert.equal(resultado.acciones[0].servicio.price, 75);
+});
+
+test('elegir transferencia sigue el flujo normal', () => {
+  const resultado = conversar(conCredito, 'hola', '1', '1', '2', '2');
+  assert.equal(resultado.estado.paso, 'pago');
+  assert.equal(resultado.acciones[0].tipo, 'crearPedido');
+});
+
+test('si el crédito no alcanza, lo dice y pide transferencia', () => {
+  const poco = { ...conRentas, cliente: { nombre: 'Laura', saldo: 50 } };
+  const resultado = conversar(poco, 'hola', '1', '1', '2');
+  assert.equal(resultado.estado.paso, 'pago');
+  assert.match(resultado.respuestas[1], /Tu crédito \(\$50\) no alcanza/);
+});
+
+test('mensajes del cobro con crédito', () => {
+  const ok = textoCobroConCredito(
+    { ok: true, saldo: 100, cuenta: { email: 'libre@x.com', password: 'clave' }, fechaFin: '2026-11-23', ventaRegistrada: true },
+    { resumen: 'Netflix', moneda: '$' },
+  );
+  assert.match(ok.respuestas[0], /te quedan \$100/i);
+  assert.match(ok.respuestas[1], /Correo: libre@x\.com\nContraseña: clave\nVence: 2026-11-23/);
+
+  const fallo = textoCobroConCredito({ ok: false, motivo: 'sinReembolso' }, { resumen: 'Netflix', moneda: '$' });
+  assert.equal(fallo.estado.paso, 'asesor');
+  assert.match(fallo.aviso.texto, /NO se pudo devolver/);
 });

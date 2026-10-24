@@ -19,6 +19,7 @@ Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a
 - Reconoce al cliente por el teléfono guardado en su ficha (compara los últimos 10 dígitos) y lo saluda por su nombre.
 - Guarda cada pedido en **Pedidos**, con el teléfono y una nota, y la actualiza cuando llega el comprobante.
 - Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
+- Cobra con el **crédito** del cliente: si su saldo alcanza, al comprar o renovar puede elegir pagar con crédito o por transferencia. El bot descuenta el saldo, crea o extiende la renta (asignando una cuenta libre como el portal) y registra la venta. Si algo falla después de descontar, devuelve el crédito y te avisa.
 - Manda **recordatorios de vencimiento** 3 días antes, 1 día antes y el mismo día, solo entre 10 am y 8 pm de México, en un mensaje por cliente. El cliente responde *renovar*, elige la cuenta y paga el precio de su renta. Te llega un resumen de a quién se avisó. Los avisos enviados se guardan en `datos/recordatorios.json` para no repetirlos.
 
 Si la página no responde o no está configurada, el bot sigue funcionando con el catálogo de `src/catalogo/servicios.js` (precios mensuales en pesos mexicanos) y `DATOS_TRANSFERENCIA`, pero no guarda pedidos ni reportes.
@@ -40,7 +41,7 @@ Hay dos formas de vincular el número del bot:
 - **Con QR** (si `NUMERO_BOT` está vacío): en la terminal aparece un QR. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo y escanéalo.
 - **Con código de 8 caracteres** (si pones `NUMERO_BOT` en el `.env`): en la terminal aparece un código como `ABCD-1234`. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo. Sirve cuando no puedes escanear, por ejemplo si el servidor no tiene pantalla.
 
-Solo se vincula una vez. La sesión queda en la carpeta `auth/`, que nunca debe subirse a GitHub.
+Solo se vincula una vez. Si WhatsApp cierra la sesión (por ejemplo, la desvinculas desde el teléfono), el bot borra la sesión vieja y vuelve a mostrar el QR o el código. Si aparece "Otra copia del bot abrió la misma sesión", hay dos copias corriendo con la misma carpeta `auth/`: deja solo una. La sesión queda en la carpeta `auth/`, que nunca debe subirse a GitHub.
 
 Para ver los logs más legibles: `npm start | npx pino-pretty`.
 

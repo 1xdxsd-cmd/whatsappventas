@@ -1,4 +1,5 @@
 import makeWASocket, { Browsers, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import { rm } from 'node:fs/promises';
 import qrcode from 'qrcode-terminal';
 
 // Único módulo que conoce Baileys. Si algún día se pasa a la API oficial de
@@ -99,8 +100,23 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
       if (connection === 'close') {
         abierta = false;
         const codigo = lastDisconnect?.error?.output?.statusCode;
-        if (codigo === DisconnectReason.loggedOut) {
-          logger.error(`La sesión se cerró desde el teléfono. Borra la carpeta "${carpetaSesion}" y vuelve a escanear el QR.`);
+        if (codigo === DisconnectReason.connectionReplaced) {
+          // Si se reconecta, las dos copias se tumban una a la otra sin fin.
+          logger.error('Otra copia del bot abrió la misma sesión de WhatsApp. Deja una sola corriendo y reinicia el bot.');
+          return;
+        }
+        if (codigo === DisconnectReason.loggedOut || codigo === DisconnectReason.badSession) {
+          // La sesión guardada ya no sirve: se borra y se pide vincular de nuevo
+          // (QR o código), sin tener que entrar a borrar la carpeta a mano.
+          logger.error(
+            { codigo },
+            codigo === DisconnectReason.loggedOut
+              ? 'WhatsApp cerró la sesión (se desvinculó desde el teléfono o WhatsApp la expulsó). Hay que vincular de nuevo.'
+              : 'La sesión guardada está dañada. Hay que vincular de nuevo.',
+          );
+          rm(carpetaSesion, { recursive: true, force: true })
+            .then(() => iniciar())
+            .catch((error) => logger.error({ err: error }, 'No se pudo reiniciar la vinculación'));
           return;
         }
         intentos += 1;

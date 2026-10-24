@@ -165,7 +165,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (texto === '0' || !grupo) return catalogo();
       const servicio = elegir(grupo.opciones, texto);
       if (!servicio) return noEntendi(textoOpciones(grupo, moneda), estado);
-      return pedirPago(servicio, resumenPedido(servicio, moneda), datosPago);
+      return elegirFormaDePago(servicio, resumenPedido(servicio, moneda), null, { cliente, moneda, datosPago });
     }
 
     case 'renovar': {
@@ -174,7 +174,23 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (!renta) return noEntendi(textoRentas(PREGUNTA_RENOVAR, rentas, (r) => formatearPrecio(servicioParaRenovar(r, servicios).price, moneda)), estado);
       const servicio = servicioParaRenovar(renta, servicios);
       const correo = renta.email ? ` (${renta.email})` : '';
-      return pedirPago(servicio, `Renovación de ${resumenPedido(servicio, moneda)}${correo}`, datosPago);
+      const resumen = `Renovación de ${resumenPedido(servicio, moneda)}${correo}`;
+      return elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPago });
+    }
+
+    case 'forma-pago': {
+      const { servicio, resumen, renta } = estado;
+      if (texto === '0') return menu();
+      if (texto === '1') {
+        // El cobro lo hace el servidor; las respuestas salen de textoCobroConCredito.
+        return {
+          respuestas: [],
+          estado: { paso: 'menu' },
+          acciones: [{ tipo: 'pagarConCredito', servicio, resumen, renta }],
+        };
+      }
+      if (texto === '2') return pedirPago(servicio, resumen, datosPago);
+      return noEntendi(textoFormaDePago(servicio, cliente, moneda), estado);
     }
 
     case 'pago':
@@ -273,6 +289,80 @@ function iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida) {
   }
   const precio = (r) => formatearPrecio(servicioParaRenovar(r, servicios).price, moneda);
   return { respuestas: [textoRentas(PREGUNTA_RENOVAR, rentas, precio)], estado: { paso: 'renovar' } };
+}
+
+function textoFormaDePago(servicio, cliente, moneda) {
+  const queda = formatearPrecio(Math.round((cliente.saldo - servicio.price) * 100) / 100, moneda);
+  return [
+    `Tienes *${formatearPrecio(cliente.saldo, moneda)}* de crédito. ¿Cómo quieres pagar?`,
+    '',
+    `*1.* Con mi crédito (te quedan ${queda})`,
+    '*2.* Por transferencia',
+    '',
+    'Responde con el número, o *0* para volver al menú.',
+  ].join('\n');
+}
+
+// Si el crédito alcanza, deja elegir entre crédito y transferencia.
+function elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPago }) {
+  const saldo = Number(cliente?.saldo) || 0;
+  if (cliente && saldo >= servicio.price && servicio.price > 0) {
+    return {
+      respuestas: [`Tu pedido: *${resumen}*.`, textoFormaDePago(servicio, { ...cliente, saldo }, moneda)],
+      estado: { paso: 'forma-pago', servicio, resumen, renta: renta ?? null },
+    };
+  }
+  const resultado = pedirPago(servicio, resumen, datosPago);
+  if (saldo > 0) {
+    resultado.respuestas.splice(1, 0, `Tu crédito (${formatearPrecio(saldo, moneda)}) no alcanza para este pedido, así que puedes pagar por transferencia.`);
+  }
+  return resultado;
+}
+
+/**
+ * Mensajes para el cliente y aviso para Anthony según cómo terminó el cobro con crédito.
+ * @returns {{ respuestas: string[], aviso: { texto: string }, estado?: object }}
+ */
+export function textoCobroConCredito(resultado, { resumen, moneda }) {
+  if (resultado.ok) {
+    const saldo = formatearPrecio(resultado.saldo, moneda);
+    const venta = resultado.ventaRegistrada ? '' : ' (no se pudo registrar en Ventas, agrégala a mano)';
+    if (resultado.renovacion) {
+      return {
+        respuestas: [`✅ Listo, renovaste con tu crédito. Nueva fecha de vencimiento: *${resultado.fechaFin}*. Te quedan ${saldo} de crédito.`],
+        aviso: { texto: `Pagó con crédito: ${resumen}. Vence ${resultado.fechaFin}. Saldo: ${saldo}${venta}.` },
+      };
+    }
+    if (resultado.cuenta) {
+      return {
+        respuestas: [
+          `✅ Listo, pagaste con tu crédito. Te quedan ${saldo}.`,
+          [`*Tus datos de acceso*`, `Correo: ${resultado.cuenta.email}`, `Contraseña: ${resultado.cuenta.password}`, `Vence: ${resultado.fechaFin}`].join('\n'),
+        ],
+        aviso: { texto: `Pagó con crédito y se le entregó ${resultado.cuenta.email}: ${resumen}. Saldo: ${saldo}${venta}. Si es perfil, dile cuál usar.` },
+      };
+    }
+    return {
+      respuestas: [`✅ Listo, pagaste con tu crédito (te quedan ${saldo}). En breve te enviamos los datos de acceso por aquí.`],
+      aviso: { texto: `Pagó con crédito pero no hay cuenta disponible: ${resumen}. Quedó en entregas pendientes${venta}.` },
+    };
+  }
+  if (resultado.motivo === 'saldoInsuficiente') {
+    return {
+      respuestas: ['Tu crédito ya no alcanza para este pedido. Escribe *menu* para elegir de nuevo y pagar por transferencia.'],
+      aviso: { texto: `Intentó pagar con crédito sin saldo suficiente: ${resumen}.` },
+    };
+  }
+  const detalle = {
+    descuentoIncierto: 'la página no respondió al descontar el crédito. Revisa su saldo: puede que sí se haya descontado.',
+    reembolsado: 'se descontó el crédito pero falló la entrega, así que se le devolvió. Revisa que no haya quedado una renta creada.',
+    sinReembolso: 'se descontó el crédito, falló la entrega y NO se pudo devolver. Devuélvele el crédito a mano.',
+  }[resultado.motivo] ?? 'ocurrió un error inesperado.';
+  return {
+    respuestas: ['No pude completar el pago con tu crédito. Un asesor te escribirá en breve por aquí.'],
+    aviso: { texto: `⚠️ Pago con crédito fallido (${resumen}): ${detalle}` },
+    estado: { paso: 'asesor' },
+  };
 }
 
 function pedirPago(servicio, resumen, datosPago) {
