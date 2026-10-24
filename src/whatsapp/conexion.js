@@ -45,12 +45,17 @@ export function formatearCodigo(codigo) {
   return codigo.match(/.{1,4}/g).join('-');
 }
 
-// Número del bot para vincular con código: solo dígitos, con 52 si viene a 10 dígitos.
-export function normalizarNumeroBot(numero) {
+// Número en formato internacional sin "+": a los de 10 dígitos se les agrega
+// el 52 de México, y se quita el "1" de celular viejo (521 + 10 dígitos),
+// que WhatsApp ya no usa y con el que el código de vinculación sale mal.
+export function normalizarNumero(numero) {
   let digitos = String(numero ?? '').replace(/\D/g, '');
   if (digitos.length === 10) digitos = `52${digitos}`;
+  if (digitos.length === 13 && digitos.startsWith('521')) digitos = `52${digitos.slice(3)}`;
   return digitos.length >= 11 ? digitos : null;
 }
+
+export const normalizarNumeroBot = normalizarNumero;
 
 /**
  * @param {{ carpetaSesion: string, numeroBot?: string | null, logger: object, alRecibir: Function }} opciones
@@ -165,9 +170,8 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
   // Busca el chat de WhatsApp de un teléfono guardado en la página. A los números
   // de 10 dígitos se les agrega el 52 de México; WhatsApp dice cuál es el correcto.
   async function buscarJid(telefono) {
-    let numero = String(telefono ?? '').replace(/\D/g, '');
-    if (numero.length === 10) numero = `52${numero}`;
-    if (numero.length < 11) return null;
+    const numero = normalizarNumero(telefono);
+    if (!numero) return null;
     const [resultado] = (await socket.onWhatsApp(numero)) ?? [];
     return resultado?.exists ? resultado.jid : null;
   }

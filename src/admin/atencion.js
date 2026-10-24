@@ -4,10 +4,11 @@ import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
 
 // Atiende los mensajes que Anthony le escribe al bot: comandos y chat con
 // clientes que pidieron un asesor.
-export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, jidAdmin, logger }) {
+export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, logger }) {
   let chatActivo = null; // número de caso cuyo cliente recibe lo que escribe Anthony
+  let chatAdmin = null; // se responde en el mismo chat desde el que escribió Anthony
 
-  const responder = (texto) => conexion.enviarTexto(jidAdmin, texto);
+  const responder = (texto) => conexion.enviarTexto(chatAdmin, texto);
 
   async function enviarAlCliente(caso, mensaje, texto) {
     if (texto) await conexion.enviarTexto(caso.jid, texto);
@@ -102,6 +103,7 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, j
   }
 
   async function manejar(mensaje) {
+    chatAdmin = mensaje.key.remoteJid;
     const { texto } = leerMensaje(mensaje);
     const { comando, caso: numero, resto } = interpretarComando(texto);
 

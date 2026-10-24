@@ -9,7 +9,9 @@ test('el código de vinculación se muestra como XXXX-XXXX', () => {
 test('el número del bot se normaliza para pedir el código', () => {
   assert.equal(normalizarNumeroBot('+52 55 1234 5678'), '525512345678');
   assert.equal(normalizarNumeroBot('55 1234 5678'), '525512345678');
-  assert.equal(normalizarNumeroBot('5215512345678'), '5215512345678');
+  // El "1" de celular de México se quita: con él, WhatsApp dice que el número es incorrecto.
+  assert.equal(normalizarNumeroBot('5216771319656'), '526771319656');
+  assert.equal(normalizarNumeroBot('+52 1 677 131 9656'), '526771319656');
   assert.equal(normalizarNumeroBot(''), null);
   assert.equal(normalizarNumeroBot('12345'), null);
 });

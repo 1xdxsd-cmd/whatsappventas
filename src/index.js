@@ -13,7 +13,7 @@ import { crearConexion, leerMensaje, numeroDeChat } from './whatsapp/conexion.js
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-if (!config.jidAdmin) {
+if (!config.numeroAdmin) {
   logger.warn('NUMERO_ADMIN no está configurado: no te llegarán avisos ni podrás usar los comandos de admin.');
 }
 
@@ -167,14 +167,25 @@ const admin = crearAtencionAdmin({
   cobros,
   casos,
   estados: { obtener: obtenerEstado, guardar: guardarEstado },
-  jidAdmin: config.jidAdmin,
   logger,
 });
 
+// WhatsApp dice cuál es el chat real del admin (con o sin el "1" de celular).
+let jidAdmin = null;
+async function obtenerJidAdmin() {
+  if (!config.numeroAdmin) return null;
+  if (!jidAdmin) {
+    jidAdmin = await conexion.buscarJid(config.numeroAdmin).catch(() => null);
+    if (!jidAdmin) logger.warn({ numero: config.numeroAdmin }, 'WhatsApp no reconoce NUMERO_ADMIN; reviso que esté bien escrito');
+  }
+  return jidAdmin ?? config.jidAdmin;
+}
+
 async function avisarAdmin(texto, mensajeParaReenviar) {
-  if (!config.jidAdmin) return;
-  await conexion.enviarTexto(config.jidAdmin, texto);
-  if (mensajeParaReenviar) await conexion.reenviar(config.jidAdmin, mensajeParaReenviar);
+  const jid = await obtenerJidAdmin();
+  if (!jid) return;
+  await conexion.enviarTexto(jid, texto);
+  if (mensajeParaReenviar) await conexion.reenviar(jid, mensajeParaReenviar);
 }
 
 async function atender(mensaje) {
@@ -250,7 +261,7 @@ if (pagina) {
         'No me pude conectar a la página. Revisa PAGINA_URL, el puerto y que la página esté encendida.',
       ),
     );
-  iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, jidAdmin: config.jidAdmin, negocio: config.negocio, logger });
+  iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, avisarAdmin, negocio: config.negocio, logger });
 }
 
 conexion.iniciar().catch((error) => {

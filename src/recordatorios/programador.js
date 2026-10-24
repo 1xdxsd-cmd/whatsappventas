@@ -24,7 +24,7 @@ async function guardarEnviados(archivo, enviados) {
   await writeFile(archivo, JSON.stringify(vigentes, null, 2));
 }
 
-export function iniciarRecordatorios({ pagina, conexion, archivo, jidAdmin, negocio, logger }) {
+export function iniciarRecordatorios({ pagina, conexion, archivo, avisarAdmin, negocio, logger }) {
   let corriendo = false;
 
   async function revisar() {
@@ -50,7 +50,7 @@ export function iniciarRecordatorios({ pagina, conexion, archivo, jidAdmin, nego
       }
       if (avisados.length > 0) {
         logger.info({ total: avisados.length }, 'Recordatorios de vencimiento enviados');
-        if (jidAdmin) await conexion.enviarTexto(jidAdmin, `🔔 Recordatorios de vencimiento enviados a: ${avisados.join(', ')}`);
+        await avisarAdmin(`🔔 Recordatorios de vencimiento enviados a: ${avisados.join(', ')}`);
       }
     } catch (error) {
       logger.error({ err: error }, 'No se pudieron enviar los recordatorios');

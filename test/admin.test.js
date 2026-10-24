@@ -44,7 +44,6 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
     cobros,
     casos,
     estados: { obtener: (jid) => estadosGuardados.get(jid), guardar: (jid, e) => estadosGuardados.set(jid, e) },
-    jidAdmin: ADMIN,
     logger: { error() {} },
   });
   const alCliente = () => enviados.filter(([jid]) => jid === CLIENTE).map(([, t]) => t);
