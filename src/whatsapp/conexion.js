@@ -1,9 +1,12 @@
 import makeWASocket, { Browsers, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from '@whiskeysockets/baileys';
 import { rm } from 'node:fs/promises';
+import QRCode from 'qrcode';
 import qrcode from 'qrcode-terminal';
 
 // Único módulo que conoce Baileys. Si algún día se pasa a la API oficial de
 // WhatsApp, se reemplaza este archivo y el resto del código queda igual.
+
+const ARCHIVO_QR = 'qr.png';
 
 const esperar = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
@@ -55,7 +58,13 @@ export function normalizarNumero(numero) {
   return digitos.length >= 11 ? digitos : null;
 }
 
-export const normalizarNumeroBot = normalizarNumero;
+// Para el código de vinculación se respeta el número tal como lo escribiste
+// (con o sin el "1"): debe coincidir con el que WhatsApp tiene para esa cuenta.
+export function normalizarNumeroBot(numero) {
+  let digitos = String(numero ?? '').replace(/\D/g, '');
+  if (digitos.length === 10) digitos = `52${digitos}`;
+  return digitos.length >= 11 ? digitos : null;
+}
 
 /**
  * @param {{ carpetaSesion: string, numeroBot?: string | null, logger: object, alRecibir: Function }} opciones
@@ -98,16 +107,19 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
             .requestPairingCode(numeroBot)
             .then((codigo) => {
               logger.info(
-                `Código de vinculación: ${formatearCodigo(codigo)}. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo.`,
+                `Código de vinculación para +${numeroBot}: ${formatearCodigo(codigo)}. Escríbelo en menos de un minuto en el teléfono de ese número: WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono. Si sale otro código después, usa siempre el último.`,
               );
             })
             .catch((error) => logger.error({ err: error }, 'No se pudo pedir el código de vinculación'));
         }
       } else if (qr) {
-        logger.info('Escanea este QR desde WhatsApp > Dispositivos vinculados');
+        logger.info(`Escanea este QR desde WhatsApp > Dispositivos vinculados. Si en la consola se ve mal, descarga ${ARCHIVO_QR} y ábrelo.`);
         qrcode.generate(qr, { small: true });
+        // Copia como imagen, para bajarla desde el administrador de archivos del servidor.
+        QRCode.toFile(ARCHIVO_QR, qr, { width: 400 }).catch((error) => logger.warn({ err: error }, 'No se pudo guardar el QR como imagen'));
       }
       if (connection === 'open') {
+        rm(ARCHIVO_QR, { force: true }).catch(() => {});
         abierta = true;
         intentos = 0;
         logger.info('Conectado a WhatsApp');
