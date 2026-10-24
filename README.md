@@ -56,7 +56,7 @@ npm start
 Hay dos formas de vincular el número del bot:
 
 - **Con QR** (si `NUMERO_BOT` está vacío): en la terminal aparece un QR. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo y escanéalo.
-- **Con código de 8 caracteres** (si pones `NUMERO_BOT` en el `.env`): en la terminal aparece un código como `ABCD-1234`. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo. Sirve cuando no puedes escanear, por ejemplo si el servidor no tiene pantalla.
+- **Con código de 8 caracteres** (si pones `NUMERO_BOT` en el `.env`): en la terminal aparece un código como `ABCD-1234`. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo. Sirve cuando no puedes escanear, por ejemplo si el servidor no tiene pantalla. El código no cambia aunque el bot se reconecte, y con `CODIGO_VINCULACION=STREAM26` puedes elegirlo tú. Si el teléfono dice "verifica si el número es correcto": detén el bot, borra la carpeta `auth/`, revisa que lo estés escribiendo en el teléfono que tiene el número de `NUMERO_BOT` y prueba con y sin el "1" (`526771319656` o `5216771319656`).
 
 Solo se vincula una vez. Si WhatsApp cierra la sesión (por ejemplo, la desvinculas desde el teléfono), el bot borra la sesión vieja y vuelve a mostrar el QR o el código. Si aparece "Otra copia del bot abrió la misma sesión", hay dos copias corriendo con la misma carpeta `auth/`: deja solo una. La sesión queda en la carpeta `auth/`, que nunca debe subirse a GitHub.
 

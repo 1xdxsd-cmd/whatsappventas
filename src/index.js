@@ -153,6 +153,7 @@ function enOrdenPorChat(jid, tarea) {
 const conexion = crearConexion({
   carpetaSesion: config.carpetaSesion,
   numeroBot: config.numeroBot,
+  codigoVinculacion: config.codigoVinculacion,
   logger,
   alRecibir(mensaje) {
     const esAdmin = config.numeroAdmin && mismoTelefono(numeroDeChat(mensaje.key), config.numeroAdmin);

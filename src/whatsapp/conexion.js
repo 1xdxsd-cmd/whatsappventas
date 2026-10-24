@@ -1,4 +1,5 @@
 import makeWASocket, { Browsers, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import { randomInt } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import QRCode from 'qrcode';
 import qrcode from 'qrcode-terminal';
@@ -48,6 +49,17 @@ export function formatearCodigo(codigo) {
   return codigo.match(/.{1,4}/g).join('-');
 }
 
+// Letras que WhatsApp acepta en el código (sin 0, O, I ni U, que se confunden).
+const LETRAS_CODIGO = '123456789ABCDEFGHJKLMNPQRSTVWXYZ';
+
+// Código de vinculación de 8 caracteres. Si lo escribiste en el .env se usa ese
+// (en mayúsculas y sin guiones); si no sirve, se genera uno al azar.
+export function prepararCodigo(codigo) {
+  const limpio = String(codigo ?? '').toUpperCase().replace(/[\s-]/g, '');
+  if (limpio.length === 8 && [...limpio].every((letra) => LETRAS_CODIGO.includes(letra))) return limpio;
+  return Array.from({ length: 8 }, () => LETRAS_CODIGO[randomInt(LETRAS_CODIGO.length)]).join('');
+}
+
 // Número en formato internacional sin "+": a los de 10 dígitos se les agrega
 // el 52 de México, y se quita el "1" de celular viejo (521 + 10 dígitos),
 // que WhatsApp ya no usa y con el que el código de vinculación sale mal.
@@ -67,10 +79,13 @@ export function normalizarNumeroBot(numero) {
 }
 
 /**
- * @param {{ carpetaSesion: string, numeroBot?: string | null, logger: object, alRecibir: Function }} opciones
+ * @param {{ carpetaSesion: string, numeroBot?: string | null, codigoVinculacion?: string, logger: object, alRecibir: Function }} opciones
  * Con `numeroBot`, la primera vinculación se hace con un código de 8 caracteres en vez del QR.
  */
-export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecibir }) {
+export function crearConexion({ carpetaSesion, numeroBot = null, codigoVinculacion, logger, alRecibir }) {
+  // El mismo código sirve en cada reconexión mientras el bot siga encendido, para
+  // que no cambie mientras lo escribes en el teléfono.
+  const codigoFijo = prepararCodigo(codigoVinculacion);
   let socket = null;
   let cola = Promise.resolve();
   let intentos = 0;
@@ -83,13 +98,20 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
 
   async function iniciar() {
     const { state, saveCreds } = await useMultiFileAuthState(carpetaSesion);
+    if (numeroBot && !state.creds.registered && state.creds.me) {
+      // Un intento de vinculación sin terminar deja guardado el número; con él,
+      // Baileys intenta iniciar sesión en vez de vincular y el código nunca sirve.
+      delete state.creds.me;
+      await saveCreds();
+    }
     const { version } = await fetchLatestBaileysVersion();
 
     socket = makeWASocket({
       version,
       auth: state,
       logger: logger.child({ modulo: 'baileys' }, { level: 'warn' }),
-      browser: Browsers.ubuntu('Chrome'),
+      // Con "Ubuntu" el teléfono a veces rechaza el código de vinculación.
+      browser: Browsers.macOS('Chrome'),
       markOnlineOnConnect: false,
     });
 
@@ -100,14 +122,14 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
 
     socket.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
       // Baileys avisa con "qr" cuando el socket está listo para vincularse.
-      if (qr && numeroBot) {
+      if (qr && numeroBot && !state.creds.registered) {
         if (!codigoPedido) {
           codigoPedido = true;
           actual
-            .requestPairingCode(numeroBot)
+            .requestPairingCode(numeroBot, codigoFijo)
             .then((codigo) => {
               logger.info(
-                `Código de vinculación para +${numeroBot}: ${formatearCodigo(codigo)}. Escríbelo en menos de un minuto en el teléfono de ese número: WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono. Si sale otro código después, usa siempre el último.`,
+                `Código de vinculación para +${numeroBot}: ${formatearCodigo(codigo)}. En el teléfono que tiene ese número abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > "Vincular con el número de teléfono" y escríbelo. El código es el mismo aunque el bot se reconecte.`,
               );
             })
             .catch((error) => logger.error({ err: error }, 'No se pudo pedir el código de vinculación'));
@@ -144,6 +166,13 @@ export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecib
           rm(carpetaSesion, { recursive: true, force: true })
             .then(() => iniciar())
             .catch((error) => logger.error({ err: error }, 'No se pudo reiniciar la vinculación'));
+          return;
+        }
+        if (numeroBot && !state.creds.registered) {
+          // Mientras se espera el código, WhatsApp corta cada minuto o dos: se
+          // reconecta enseguida y se vuelve a pedir el mismo código.
+          logger.info({ codigo }, 'Esperando que escribas el código en el teléfono; reconectando con el mismo código');
+          setTimeout(() => iniciar().catch((error) => logger.error({ err: error }, 'Fallo al reconectar')), 1000);
           return;
         }
         intentos += 1;

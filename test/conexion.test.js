@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatearCodigo, leerMensaje, normalizarNumero, normalizarNumeroBot } from '../src/whatsapp/conexion.js';
+import { formatearCodigo, leerMensaje, normalizarNumero, normalizarNumeroBot, prepararCodigo } from '../src/whatsapp/conexion.js';
 
 test('el código de vinculación se muestra como XXXX-XXXX', () => {
   assert.equal(formatearCodigo('ABCD1234'), 'ABCD-1234');
@@ -25,4 +25,12 @@ test('lee el texto y detecta comprobantes', () => {
 test('para buscar chats, el "1" de celular de México se quita', () => {
   assert.equal(normalizarNumero('5216771319656'), '526771319656');
   assert.equal(normalizarNumero('6771319656'), '526771319656');
+});
+
+test('prepararCodigo respeta un código válido y genera uno si no', () => {
+  assert.equal(prepararCodigo('stre-am26'), 'STREAM26');
+  for (const malo of [undefined, '', 'ABC', 'OOOO0000']) {
+    const codigo = prepararCodigo(malo);
+    assert.match(codigo, /^[1-9A-HJ-NP-TV-Z]{8}$/);
+  }
 });
