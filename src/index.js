@@ -14,6 +14,10 @@ if (!config.jidAdmin) {
   logger.warn('NUMERO_ADMIN no está configurado: no te llegarán avisos de pedidos ni comprobantes.');
 }
 
+if (process.env.NUMERO_BOT && !config.numeroBot) {
+  logger.warn('NUMERO_BOT no parece un número válido; se usará el QR para vincular.');
+}
+
 const pagina = config.pagina ? crearClientePagina({ ...config.pagina, logger }) : null;
 if (!pagina) {
   logger.warn('PAGINA_URL no está configurada: uso el catálogo de respaldo y no se guardan pedidos ni reportes.');
@@ -95,6 +99,7 @@ async function ejecutarAcciones(acciones, { estado, contexto, telefono, nombreWh
 
 const conexion = crearConexion({
   carpetaSesion: config.carpetaSesion,
+  numeroBot: config.numeroBot,
   logger,
   async alRecibir(mensaje) {
     const jid = mensaje.key.remoteJid;

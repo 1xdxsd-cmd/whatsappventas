@@ -35,7 +35,12 @@ cp .env.example .env   # y completa NUMERO_ADMIN, MONEDA y DATOS_TRANSFERENCIA
 npm start
 ```
 
-En la terminal aparece un QR. En el teléfono del número del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo y escanéalo. La sesión queda en la carpeta `auth/`, que nunca debe subirse a GitHub.
+Hay dos formas de vincular el número del bot:
+
+- **Con QR** (si `NUMERO_BOT` está vacío): en la terminal aparece un QR. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo y escanéalo.
+- **Con código de 8 caracteres** (si pones `NUMERO_BOT` en el `.env`): en la terminal aparece un código como `ABCD-1234`. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo. Sirve cuando no puedes escanear, por ejemplo si el servidor no tiene pantalla.
+
+Solo se vincula una vez. La sesión queda en la carpeta `auth/`, que nunca debe subirse a GitHub.
 
 Para ver los logs más legibles: `npm start | npx pino-pretty`.
 

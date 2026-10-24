@@ -29,7 +29,23 @@ export function leerMensaje(mensaje) {
   };
 }
 
-export function crearConexion({ carpetaSesion, logger, alRecibir }) {
+// El código se muestra como XXXX-XXXX, igual que lo pide WhatsApp en el teléfono.
+export function formatearCodigo(codigo) {
+  return codigo.match(/.{1,4}/g).join('-');
+}
+
+// Número del bot para vincular con código: solo dígitos, con 52 si viene a 10 dígitos.
+export function normalizarNumeroBot(numero) {
+  let digitos = String(numero ?? '').replace(/\D/g, '');
+  if (digitos.length === 10) digitos = `52${digitos}`;
+  return digitos.length >= 11 ? digitos : null;
+}
+
+/**
+ * @param {{ carpetaSesion: string, numeroBot?: string | null, logger: object, alRecibir: Function }} opciones
+ * Con `numeroBot`, la primera vinculación se hace con un código de 8 caracteres en vez del QR.
+ */
+export function crearConexion({ carpetaSesion, numeroBot = null, logger, alRecibir }) {
   let socket = null;
   let cola = Promise.resolve();
   let intentos = 0;
@@ -54,8 +70,24 @@ export function crearConexion({ carpetaSesion, logger, alRecibir }) {
 
     socket.ev.on('creds.update', saveCreds);
 
+    let codigoPedido = false;
+    const actual = socket;
+
     socket.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-      if (qr) {
+      // Baileys avisa con "qr" cuando el socket está listo para vincularse.
+      if (qr && numeroBot) {
+        if (!codigoPedido) {
+          codigoPedido = true;
+          actual
+            .requestPairingCode(numeroBot)
+            .then((codigo) => {
+              logger.info(
+                `Código de vinculación: ${formatearCodigo(codigo)}. En el teléfono del bot abre WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con el número de teléfono, y escríbelo.`,
+              );
+            })
+            .catch((error) => logger.error({ err: error }, 'No se pudo pedir el código de vinculación'));
+        }
+      } else if (qr) {
         logger.info('Escanea este QR desde WhatsApp > Dispositivos vinculados');
         qrcode.generate(qr, { small: true });
       }
