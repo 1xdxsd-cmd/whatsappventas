@@ -213,3 +213,24 @@ test('mensajes del cobro con crédito', () => {
   assert.equal(fallo.estado.paso, 'asesor');
   assert.match(fallo.aviso.texto, /NO se pudo devolver/);
 });
+
+test('el saludo usa el nombre del negocio', () => {
+  const resultado = conversar({ ...contextoBase, negocio: 'Streaming Thalia', cliente: { nombre: 'Laura' } }, 'hola');
+  assert.match(resultado.respuestas[0], /¡Hola, Laura! 👋 Bienvenido a \*Streaming Thalia\*/);
+});
+
+test('al escribir, le recuerda las cuentas que vencen en 3 días o menos', () => {
+  const ahora = new Date('2026-11-03T15:00:00-06:00');
+  const contexto = { ...conRentas, ahora };
+  const saludo = conversar(contexto, 'hola');
+  assert.equal(saludo.respuestas.length, 2);
+  assert.match(saludo.respuestas[1], /⏰ \*Recordatorio\*/);
+  // Disney vence el 5 (en 2 días); Netflix el 20, todavía no.
+  assert.match(saludo.respuestas[1], /Disney\+ \(cuenta completa, d1@ales98\.com\) vence en 2 días \(5 de noviembre\)/);
+  assert.doesNotMatch(saludo.respuestas[1], /Netflix/);
+  // También al volver al menú, pero no en cada paso.
+  assert.equal(conversar(contexto, 'hola', '1', 'menu').respuestas.length, 2);
+  assert.equal(conversar(contexto, 'hola', '1').respuestas.length, 1);
+  // Sin cuentas por vencer, no hay recordatorio.
+  assert.equal(conversar({ ...conRentas, ahora: new Date('2026-10-24T12:00:00-06:00') }, 'hola').respuestas.length, 1);
+});

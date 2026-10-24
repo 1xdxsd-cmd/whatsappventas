@@ -32,6 +32,7 @@ const casos = crearRegistroDeCasos();
 async function cargarContexto(telefono) {
   const contexto = {
     moneda: config.moneda,
+    negocio: config.negocio,
     servicios: SERVICIOS_BASE,
     datosPago: config.datosTransferencia,
     cliente: null,
@@ -249,7 +250,7 @@ if (pagina) {
         'No me pude conectar a la página. Revisa PAGINA_URL, el puerto y que la página esté encendida.',
       ),
     );
-  iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, jidAdmin: config.jidAdmin, logger });
+  iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, jidAdmin: config.jidAdmin, negocio: config.negocio, logger });
 }
 
 conexion.iniciar().catch((error) => {

@@ -1,3 +1,4 @@
+import { lineaDeVencimiento, rentasPorVencer } from '../recordatorios/calculo.js';
 import { agruparPorPlataforma, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo } from '../catalogo/servicios.js';
 
 // Lógica de la conversación como función pura: recibe el mensaje, el estado
@@ -31,9 +32,17 @@ function textoMenu() {
   ].join('\n');
 }
 
-function textoBienvenida(cliente) {
-  const saludo = cliente ? `¡Hola, ${cliente.nombre}! 👋` : '¡Hola! 👋 Bienvenido.';
+function textoBienvenida(cliente, negocio) {
+  const nombre = negocio ? ` a *${negocio}*` : '';
+  const saludo = cliente ? `¡Hola, ${cliente.nombre}! 👋 Bienvenido${nombre}.` : `¡Hola! 👋 Bienvenido${nombre}.`;
   return `${saludo} Vendemos cuentas y perfiles de streaming.\n\n${textoMenu()}`;
+}
+
+// Al saludar o volver al menú, si tiene cuentas por vencer, se lo recuerda.
+function recordatorioAlEscribir(rentas, ahora) {
+  const porVencer = rentasPorVencer(rentas, ahora);
+  if (porVencer.length === 0) return [];
+  return [['⏰ *Recordatorio*', '', ...porVencer.map((r) => lineaDeVencimiento(r, ahora)), '', 'Para renovar, responde *renovar*.'].join('\n')];
 }
 
 function textoCatalogo(grupos, moneda) {
@@ -125,13 +134,14 @@ function noEntendi(texto, estado) {
  */
 export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false } = contexto;
+  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false, negocio = '', ahora = new Date() } = contexto;
+  const bienvenida = () => [textoBienvenida(cliente, negocio), ...recordatorioAlEscribir(rentas, ahora)];
   const grupos = agruparPorPlataforma(servicios);
   const menu = (respuestas = [textoMenu()]) => ({ respuestas, estado: { paso: 'menu' } });
   const catalogo = () => ({ respuestas: [textoCatalogo(grupos, moneda)], estado: { paso: 'catalogo' } });
 
   if (PALABRAS_MENU.includes(texto)) {
-    return estado.paso === 'inicio' ? menu([textoBienvenida(cliente)]) : menu();
+    return estado.paso === 'inicio' ? menu(bienvenida()) : menu([textoMenu(), ...recordatorioAlEscribir(rentas, ahora)]);
   }
   if (texto === 'asesor') {
     return pasarAAsesor('Un cliente pidió hablar con un asesor.');
@@ -143,7 +153,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
 
   switch (estado.paso) {
     case 'inicio':
-      return menu([textoBienvenida(cliente)]);
+      return menu(bienvenida());
 
     case 'menu':
       if (texto === '1') return catalogo();
@@ -248,7 +258,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       return { respuestas: [], estado };
 
     default:
-      return menu([textoBienvenida(cliente)]);
+      return menu(bienvenida());
   }
 }
 

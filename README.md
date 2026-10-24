@@ -20,7 +20,7 @@ Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a
 - Guarda cada pedido en **Pedidos**, con el teléfono y una nota, y la actualiza cuando llega el comprobante.
 - Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
 - Cobra con el **crédito** del cliente: si su saldo alcanza, al comprar o renovar puede elegir pagar con crédito o por transferencia. El bot descuenta el saldo, crea o extiende la renta (asignando una cuenta libre como el portal) y registra la venta. Si algo falla después de descontar, devuelve el crédito y te avisa.
-- Manda **recordatorios de vencimiento** 3 días antes, 1 día antes y el mismo día, solo entre 10 am y 8 pm de México, en un mensaje por cliente. El cliente responde *renovar*, elige la cuenta y paga el precio de su renta. Te llega un resumen de a quién se avisó. Los avisos enviados se guardan en `datos/recordatorios.json` para no repetirlos.
+- Manda **recordatorios de vencimiento** todos los días a las 12 pm (hora de la Ciudad de México) desde 3 días antes de que venza la cuenta, en un mensaje por cliente. Si a esa hora el bot estaba apagado, el aviso del día sale en cuanto vuelve (hasta las 8 pm). Además, cuando el cliente escribe, el saludo le recuerda las cuentas que vencen en 3 días o menos. El cliente responde *renovar*, elige la cuenta y paga el precio de su renta. Te llega un resumen de a quién se avisó. Los avisos enviados se guardan en `datos/recordatorios.json` para no repetirlos.
 
 Si la página no responde o no está configurada, el bot sigue funcionando con el catálogo de `src/catalogo/servicios.js` (precios mensuales en pesos mexicanos) y `DATOS_TRANSFERENCIA`, pero no guarda pedidos ni reportes.
 
