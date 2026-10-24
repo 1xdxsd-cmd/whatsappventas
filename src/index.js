@@ -37,6 +37,7 @@ async function cargarContexto(telefono) {
     datosPago: config.datosTransferencia,
     cliente: null,
     rentas: [],
+    paginaCaida: false,
   };
   if (!pagina) return contexto;
   try {
@@ -54,7 +55,10 @@ async function cargarContexto(telefono) {
       contexto.rentas = (await pagina.rentasActivas(cliente.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     }
   } catch (error) {
-    logger.error({ err: error }, 'No se pudo leer la página; uso el catálogo de respaldo');
+    // Sin la página no se sabe si el cliente está registrado: la conversación
+    // lo trata distinto a "no registrado".
+    contexto.paginaCaida = true;
+    logger.error({ err: error, url: config.pagina.url }, 'No se pudo leer la página; uso el catálogo de respaldo');
   }
   return contexto;
 }
@@ -128,6 +132,16 @@ const conexion = crearConexion({
 });
 
 if (pagina) {
+  // Prueba al arrancar para saber de inmediato si PAGINA_URL es correcta.
+  pagina
+    .servicios()
+    .then((servicios) => logger.info({ url: config.pagina.url, servicios: servicios.length }, 'Conectado a la página'))
+    .catch((error) =>
+      logger.error(
+        { url: config.pagina.url, causa: error.cause?.code ?? error.message },
+        'No me pude conectar a la página. Revisa PAGINA_URL, el puerto y que la página esté encendida.',
+      ),
+    );
   iniciarRecordatorios({ pagina, conexion, archivo: config.archivoRecordatorios, jidAdmin: config.jidAdmin, logger });
 }
 

@@ -151,3 +151,14 @@ test('renovar también está en el menú, y sin rentas pasa a un asesor', () => 
 test('"renovar" no interrumpe a un asesor', () => {
   assert.deepEqual(conversar(conRentas, 'hola', '5', 'renovar').respuestas, []);
 });
+
+test('si la página no responde, no dice que el cliente no está registrado', () => {
+  const caida = { ...contextoBase, paginaCaida: true };
+  for (const opcion of ['2', '3']) {
+    const resultado = conversar(caida, 'hola', opcion);
+    assert.equal(resultado.estado.paso, 'asesor');
+    assert.match(resultado.respuestas[0], /no puedo consultar tus cuentas/);
+    assert.match(resultado.aviso.texto, /no pudo conectarse a la página/);
+    assert.doesNotMatch(resultado.aviso.texto, /no está registrado/);
+  }
+});

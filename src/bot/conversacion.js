@@ -125,7 +125,7 @@ function noEntendi(texto, estado) {
  */
 export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, servicios, datosPago, cliente = null, rentas = [] } = contexto;
+  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false } = contexto;
   const grupos = agruparPorPlataforma(servicios);
   const menu = (respuestas = [textoMenu()]) => ({ respuestas, estado: { paso: 'menu' } });
   const catalogo = () => ({ respuestas: [textoCatalogo(grupos, moneda)], estado: { paso: 'catalogo' } });
@@ -138,7 +138,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
   }
   // Los recordatorios de vencimiento piden responder "renovar".
   if (texto === 'renovar' && estado.paso !== 'asesor') {
-    return iniciarRenovacion(rentas, servicios, cliente, moneda);
+    return iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida);
   }
 
   switch (estado.paso) {
@@ -147,8 +147,8 @@ export function procesarMensaje(mensaje, estado, contexto) {
 
     case 'menu':
       if (texto === '1') return catalogo();
-      if (texto === '2') return iniciarRenovacion(rentas, servicios, cliente, moneda);
-      if (texto === '3') return iniciarReporte(rentas, cliente);
+      if (texto === '2') return iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida);
+      if (texto === '3') return iniciarReporte(rentas, cliente, paginaCaida);
       if (texto === '4') return menu([textoComoComprar(), textoMenu()]);
       if (texto === '5') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
       return menu([`No entendí tu respuesta. ${textoMenu()}`]);
@@ -236,7 +236,16 @@ export function procesarMensaje(mensaje, estado, contexto) {
   }
 }
 
-function iniciarReporte(rentas, cliente) {
+function sinAccesoALaPagina(queQuiere) {
+  return {
+    respuestas: ['En este momento no puedo consultar tus cuentas. Un asesor te escribirá en breve por aquí.'],
+    estado: { paso: 'asesor' },
+    aviso: { texto: `Un cliente quiere ${queQuiere}, pero el bot no pudo conectarse a la página. Revisa PAGINA_URL y que la página esté encendida.` },
+  };
+}
+
+function iniciarReporte(rentas, cliente, paginaCaida) {
+  if (paginaCaida) return sinAccesoALaPagina('reportar una cuenta caída');
   if (rentas.length === 0) {
     const motivo = cliente
       ? `${cliente.nombre} quiere reportar una cuenta caída, pero no tiene rentas activas en la página.`
@@ -250,7 +259,8 @@ function iniciarReporte(rentas, cliente) {
   return { respuestas: [textoRentas(PREGUNTA_REPORTE, rentas)], estado: { paso: 'reporte' } };
 }
 
-function iniciarRenovacion(rentas, servicios, cliente, moneda) {
+function iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida) {
+  if (paginaCaida) return sinAccesoALaPagina('renovar');
   if (rentas.length === 0) {
     const motivo = cliente
       ? `${cliente.nombre} quiere renovar, pero no tiene rentas activas en la página.`
