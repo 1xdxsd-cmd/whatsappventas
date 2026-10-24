@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ESTADO_INICIAL, procesarMensaje, textoCobroConCredito } from '../src/bot/conversacion.js';
+import { ESTADO_INICIAL, procesarMensaje, textoCambioDeClave, textoCobroConCredito } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 
 const contextoBase = { moneda: '$', servicios: SERVICIOS_BASE, datosPago: 'Banco X\nCuenta 123' };
@@ -233,4 +233,52 @@ test('al escribir, le recuerda las cuentas que vencen en 3 días o menos', () =>
   assert.equal(conversar(contexto, 'hola', '1').respuestas.length, 1);
   // Sin cuentas por vencer, no hay recordatorio.
   assert.equal(conversar({ ...conRentas, ahora: new Date('2026-10-24T12:00:00-06:00') }, 'hola').respuestas.length, 1);
+});
+
+const conCuenta = { ...contextoBase, cliente: { id: 'c1', nombre: 'Ana', usuario: 'ana23', saldo: 0 }, enlacePagina: 'https://pagina.mx' };
+
+test('la opción 6 le dice su usuario al cliente registrado', () => {
+  const r = procesarMensaje({ texto: '6' }, { paso: 'menu' }, conCuenta);
+  assert.equal(r.estado.paso, 'cuenta');
+  assert.match(r.respuestas[0], /\*ana23\*/);
+  assert.match(r.respuestas[0], /https:\/\/pagina\.mx/);
+});
+
+test('"olvidé mi contraseña" también abre la recuperación', () => {
+  const r = procesarMensaje({ texto: 'Olvidé mi contraseña' }, { paso: 'catalogo' }, conCuenta);
+  assert.equal(r.estado.paso, 'cuenta');
+});
+
+test('cambiar la contraseña pide el cambio al servidor con la clave tal cual', () => {
+  const r1 = procesarMensaje({ texto: '1' }, { paso: 'cuenta' }, conCuenta);
+  assert.equal(r1.estado.paso, 'nueva-clave');
+  const corta = procesarMensaje({ texto: 'abc' }, r1.estado, conCuenta);
+  assert.equal(corta.estado.paso, 'nueva-clave');
+  assert.equal(corta.acciones, undefined);
+  const conEspacio = procesarMensaje({ texto: 'mi clave 1' }, r1.estado, conCuenta);
+  assert.equal(conEspacio.acciones, undefined);
+  const r2 = procesarMensaje({ texto: ' Secreta99 ' }, r1.estado, conCuenta);
+  assert.deepEqual(r2.acciones, [{ tipo: 'cambiarClave', clave: 'Secreta99' }]);
+  assert.equal(r2.estado.paso, 'menu');
+});
+
+test('"clave" no interrumpe a quien está escribiendo su contraseña', () => {
+  const r = procesarMensaje({ texto: 'clave' }, { paso: 'nueva-clave' }, conCuenta);
+  assert.equal(r.estado.paso, 'nueva-clave');
+});
+
+test('desde un número no registrado no da datos y pasa a un asesor', () => {
+  const r = procesarMensaje({ texto: 'usuario' }, { paso: 'menu' }, contextoBase);
+  assert.equal(r.estado.paso, 'asesor');
+  assert.ok(r.aviso);
+  const caida = procesarMensaje({ texto: '6' }, { paso: 'menu' }, { ...contextoBase, paginaCaida: true });
+  assert.match(caida.aviso.texto, /no pudo conectarse/);
+});
+
+test('mensajes del cambio de contraseña no incluyen la contraseña', () => {
+  const ok = textoCambioDeClave(true, conCuenta.cliente);
+  assert.match(ok.respuestas[0], /ana23/);
+  assert.match(ok.aviso.texto, /cambió su contraseña/);
+  const mal = textoCambioDeClave(false, conCuenta.cliente);
+  assert.equal(mal.estado.paso, 'asesor');
 });

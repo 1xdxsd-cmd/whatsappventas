@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
-import { procesarMensaje, textoCobroConCredito } from './bot/conversacion.js';
+import { procesarMensaje, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -33,6 +33,7 @@ async function cargarContexto(telefono) {
   const contexto = {
     moneda: config.moneda,
     negocio: config.negocio,
+    enlacePagina: config.enlacePagina,
     servicios: SERVICIOS_BASE,
     datosPago: config.datosTransferencia,
     cliente: null,
@@ -50,7 +51,7 @@ async function cargarContexto(telefono) {
     const datosPago = textoMetodosPago(metodos);
     if (datosPago) contexto.datosPago = datosPago;
     if (cliente) {
-      contexto.cliente = { id: cliente.id, nombre: cliente.name, saldo: Number(cliente.balance) || 0 };
+      contexto.cliente = { id: cliente.id, nombre: cliente.name, usuario: cliente.username, saldo: Number(cliente.balance) || 0 };
       // Orden fijo para que el número que elige el cliente no cambie entre mensajes.
       contexto.rentas = (await pagina.rentasActivas(cliente.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     }
@@ -106,6 +107,20 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
             })
           : null;
         caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, resumen: accion.motivo, caidaId: reporte?.id ?? null });
+      }
+      if (accion.tipo === 'cambiarClave' && contexto.cliente) {
+        let ok = false;
+        try {
+          await pagina.cambiarClave(contexto.cliente.id, accion.clave);
+          ok = true;
+        } catch (error) {
+          // Sin el detalle del pedido, para que la contraseña no quede en el log.
+          logger.error({ estado: error.estado }, 'No se pudo cambiar la contraseña en la página');
+        }
+        const textos = textoCambioDeClave(ok, contexto.cliente);
+        respuestas.push(...textos.respuestas);
+        avisos.push({ texto: textos.aviso.texto });
+        if (textos.estado) estado = textos.estado;
       }
       if (accion.tipo === 'pagarConCredito' && cobros && contexto.cliente) {
         const resultado = await cobros.pagar({

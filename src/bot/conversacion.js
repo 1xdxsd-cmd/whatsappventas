@@ -11,6 +11,8 @@ export const ESTADO_INICIAL = { paso: 'inicio' };
 
 // Funcionan en cualquier paso, incluso cuando atiende un asesor.
 const PALABRAS_MENU = ['menu', 'inicio'];
+const PALABRAS_CUENTA = ['usuario', 'contrasena', 'clave', 'olvide mi contrasena', 'olvide mi clave', 'olvide mi usuario'];
+export const LARGO_MINIMO_CLAVE = 6;
 
 function normalizar(texto) {
   return (texto ?? '')
@@ -29,6 +31,7 @@ function textoMenu() {
     '*3.* Reportar una cuenta que no funciona',
     '*4.* Cómo comprar',
     '*5.* Hablar con un asesor',
+    '*6.* Mi usuario o contraseña de la página',
   ].join('\n');
 }
 
@@ -134,7 +137,7 @@ function noEntendi(texto, estado) {
  */
 export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false, negocio = '', ahora = new Date() } = contexto;
+  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false, negocio = '', enlacePagina = '', ahora = new Date() } = contexto;
   const bienvenida = () => [textoBienvenida(cliente, negocio), ...recordatorioAlEscribir(rentas, ahora)];
   const grupos = agruparPorPlataforma(servicios);
   const menu = (respuestas = [textoMenu()]) => ({ respuestas, estado: { paso: 'menu' } });
@@ -150,6 +153,9 @@ export function procesarMensaje(mensaje, estado, contexto) {
   if (texto === 'renovar' && estado.paso !== 'asesor') {
     return iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida);
   }
+  if (PALABRAS_CUENTA.includes(texto) && !['asesor', 'nueva-clave'].includes(estado.paso)) {
+    return iniciarCuenta(cliente, paginaCaida, enlacePagina);
+  }
 
   switch (estado.paso) {
     case 'inicio':
@@ -161,6 +167,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (texto === '3') return iniciarReporte(rentas, cliente, paginaCaida);
       if (texto === '4') return menu([textoComoComprar(), textoMenu()]);
       if (texto === '5') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
+      if (texto === '6') return iniciarCuenta(cliente, paginaCaida, enlacePagina);
       return menu([`No entendí tu respuesta. ${textoMenu()}`]);
 
     case 'catalogo': {
@@ -253,6 +260,30 @@ export function procesarMensaje(mensaje, estado, contexto) {
       };
     }
 
+    case 'cuenta':
+      if (texto === '0') return menu();
+      if (texto === '1' && cliente?.id) {
+        return {
+          respuestas: [`Escribe tu nueva contraseña (mínimo ${LARGO_MINIMO_CLAVE} caracteres, sin espacios), o *0* para cancelar.`],
+          estado: { paso: 'nueva-clave' },
+        };
+      }
+      return noEntendi(textoCuenta(cliente, enlacePagina), estado);
+
+    case 'nueva-clave': {
+      // La contraseña se toma tal cual (con mayúsculas), no la versión normalizada.
+      const clave = (mensaje.texto ?? '').trim();
+      if (clave === '0' || !cliente?.id) return menu();
+      if (clave.length < LARGO_MINIMO_CLAVE || /\s/.test(clave)) {
+        return {
+          respuestas: [`La contraseña debe tener al menos ${LARGO_MINIMO_CLAVE} caracteres y no llevar espacios. Escríbela de nuevo, o *0* para cancelar.`],
+          estado,
+        };
+      }
+      // El cambio lo hace el servidor; las respuestas salen de textoCambioDeClave.
+      return { respuestas: [], estado: { paso: 'menu' }, acciones: [{ tipo: 'cambiarClave', clave }] };
+    }
+
     case 'asesor':
       // Anthony atiende en persona; el bot calla hasta que el cliente escriba "menu".
       return { respuestas: [], estado };
@@ -267,6 +298,46 @@ function sinAccesoALaPagina(queQuiere) {
     respuestas: ['En este momento no puedo consultar tus cuentas. Un asesor te escribirá en breve por aquí.'],
     estado: { paso: 'asesor' },
     aviso: { texto: `Un cliente quiere ${queQuiere}, pero el bot no pudo conectarse a la página. Revisa PAGINA_URL y que la página esté encendida.` },
+  };
+}
+
+function textoCuenta(cliente, enlacePagina) {
+  const enlace = enlacePagina ? `\nEntra en: ${enlacePagina}` : '';
+  return [
+    `Tu usuario de la página es *${cliente.usuario}*.${enlace}`,
+    '',
+    '*1.* Cambiar mi contraseña',
+    '*0.* Volver al menú',
+  ].join('\n');
+}
+
+// El teléfono desde el que escribe es la prueba de identidad: solo se atiende si
+// coincide con el registrado en la página. Nunca se envía la contraseña actual
+// (la página ni siquiera la guarda legible); solo se puede poner una nueva.
+function iniciarCuenta(cliente, paginaCaida, enlacePagina) {
+  if (paginaCaida) return sinAccesoALaPagina('recuperar su usuario o contraseña de la página');
+  if (!cliente?.id || !cliente.usuario) {
+    return {
+      respuestas: ['No encontré una cuenta de la página con este número de WhatsApp. Un asesor te escribirá en breve para ayudarte.'],
+      estado: { paso: 'asesor' },
+      aviso: { texto: 'Un cliente quiere recuperar su usuario o contraseña, pero su número no está registrado en la página.' },
+    };
+  }
+  return { respuestas: [textoCuenta(cliente, enlacePagina)], estado: { paso: 'cuenta' } };
+}
+
+/** Mensajes para el cliente y aviso para Anthony según cómo terminó el cambio de contraseña. */
+export function textoCambioDeClave(ok, cliente) {
+  if (ok) {
+    return {
+      respuestas: [`✅ Listo, cambiaste tu contraseña. Ya puedes entrar a la página con tu usuario *${cliente.usuario}* y la contraseña nueva. Por seguridad, borra el mensaje donde la escribiste.`],
+      aviso: { texto: `${cliente.nombre} (@${cliente.usuario}) cambió su contraseña de la página por WhatsApp.` },
+    };
+  }
+  return {
+    respuestas: ['No pude cambiar tu contraseña en este momento. Un asesor te escribirá en breve por aquí.'],
+    aviso: { texto: `⚠️ ${cliente.nombre} (@${cliente.usuario}) quiso cambiar su contraseña por WhatsApp, pero la página dio error.` },
+    estado: { paso: 'asesor' },
   };
 }
 

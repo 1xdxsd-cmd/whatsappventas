@@ -75,6 +75,11 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       return rentas.filter((r) => r.clientId === clienteId && rentaActiva(r.endDate));
     },
 
+    // La página guarda solo el hash; nunca se puede leer la contraseña actual.
+    cambiarClave(clienteId, clave) {
+      return pedir('PUT', `/api/admin/clients/${encodeURIComponent(clienteId)}`, { password: clave });
+    },
+
     crearPedido(pedido) {
       return pedir('POST', '/api/admin/orders', pedido);
     },

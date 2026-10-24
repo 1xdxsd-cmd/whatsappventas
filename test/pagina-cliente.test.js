@@ -41,6 +41,7 @@ const servidor = http.createServer((req, res) => {
     }
     if (req.method === 'POST' && req.url === '/api/admin/orders') return json(201, { id: 'ord-1', ...JSON.parse(cuerpo) });
     if (req.method === 'PUT' && req.url === '/api/admin/orders/ord-1') return json(200, { id: 'ord-1' });
+    if (req.method === 'PUT' && req.url === '/api/admin/clients/client-1') return json(200, { message: 'Actualizado' });
     if (req.method === 'POST' && req.url === '/api/admin/fallen') return json(201, { id: 'fall-1' });
     return json(404, { error: 'No encontrado' });
   });
@@ -80,4 +81,10 @@ test('vuelve a iniciar sesión si la página se reinició', async () => {
   tokenValido = 'token-2';
   await pagina.reportarCaida({ platform: 'netflix', reason: 'otra' });
   assert.equal(logins, antes + 1);
+});
+
+test('cambia la contraseña del cliente con la ruta de edición de clientes', async () => {
+  await pagina.cambiarClave('client-1', 'Secreta99');
+  const ultimo = recibidos.at(-1);
+  assert.deepEqual(ultimo, { metodo: 'PUT', ruta: '/api/admin/clients/client-1', cuerpo: { password: 'Secreta99' } });
 });
