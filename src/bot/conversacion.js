@@ -141,9 +141,10 @@ function noEntendi(texto, estado) {
  */
 export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, servicios, datosPago, cliente = null, rentas = [], paginaCaida = false, negocio = '', enlacePagina = '', ahora = new Date() } = contexto;
+  const { moneda, servicios, datosPago, cobradores = [], cliente = null, rentas = [], paginaCaida = false, negocio = '', enlacePagina = '', ahora = new Date() } = contexto;
   const bienvenida = () => [textoBienvenida(cliente, negocio), ...recordatorioAlEscribir(rentas, ahora)];
   const grupos = agruparPorPlataforma(servicios);
+  const pagos = { datosPago, cobradores };
   const menu = (respuestas = [textoMenu()]) => ({ respuestas, estado: { paso: 'menu' } });
   const catalogo = () => ({ respuestas: [textoCatalogo(grupos, moneda)], estado: { paso: 'catalogo' } });
 
@@ -190,7 +191,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       if (texto === '0' || !grupo) return catalogo();
       const servicio = elegir(grupo.opciones, texto);
       if (!servicio) return noEntendi(textoOpciones(grupo, moneda), estado);
-      return elegirFormaDePago(servicio, resumenPedido(servicio, moneda), null, { cliente, moneda, datosPago });
+      return elegirFormaDePago(servicio, resumenPedido(servicio, moneda), null, { cliente, moneda, pagos });
     }
 
     case 'renovar': {
@@ -200,7 +201,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
       const servicio = servicioParaRenovar(renta, servicios);
       const correo = renta.email ? ` (${renta.email})` : '';
       const resumen = `Renovación de ${resumenPedido(servicio, moneda)}${correo}`;
-      return elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPago });
+      return elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, pagos });
     }
 
     case 'forma-pago': {
@@ -214,7 +215,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
           acciones: [{ tipo: 'pagarConCredito', servicio, resumen, renta }],
         };
       }
-      if (texto === '2') return pedirPago(servicio, resumen, datosPago, renta);
+      if (texto === '2') return pedirPago(servicio, resumen, pagos, renta);
       return noEntendi(textoFormaDePago(servicio, cliente, moneda), estado);
     }
 
@@ -282,15 +283,15 @@ export function procesarMensaje(mensaje, estado, contexto) {
         };
       }
       const resumen = `Recarga de crédito de ${formatearPrecio(monto, moneda)}`;
-      return {
-        respuestas: [
-          `Perfecto: *${resumen}*.`,
-          `Haz la transferencia a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*. Cuando lo confirmemos, el crédito aparece en tu cuenta de la página.`,
-        ],
-        estado: { paso: 'pago', resumen, recarga: true },
-        acciones: [{ tipo: 'crearRecarga', monto, resumen }],
-        aviso: { texto: `Quiere recargar crédito: ${formatearPrecio(monto, moneda)}. Esperando comprobante.` },
-      };
+      return cobrar({ tipo: 'recarga', monto, resumen }, pagos);
+    }
+
+    case 'elegir-cobrador': {
+      if (texto === '0') return menu();
+      const indice = Number.parseInt(texto, 10) - 1;
+      const cobrador = elegir(cobradores, texto);
+      if (!cobrador || !estado.pendiente) return noEntendi(textoCobradores(cobradores), estado);
+      return cobrarA(estado.pendiente, cobrador, indice);
     }
 
     case 'cuenta':
@@ -444,7 +445,7 @@ function textoFormaDePago(servicio, cliente, moneda) {
 }
 
 // Si el crédito alcanza, deja elegir entre crédito y transferencia.
-function elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPago }) {
+function elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, pagos }) {
   const saldo = Number(cliente?.saldo) || 0;
   if (cliente && saldo >= servicio.price && servicio.price > 0) {
     return {
@@ -452,7 +453,7 @@ function elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPag
       estado: { paso: 'forma-pago', servicio, resumen, renta: renta ?? null },
     };
   }
-  const resultado = pedirPago(servicio, resumen, datosPago, renta);
+  const resultado = pedirPago(servicio, resumen, pagos, renta);
   if (saldo > 0) {
     resultado.respuestas.splice(1, 0, `Tu crédito (${formatearPrecio(saldo, moneda)}) no alcanza para este pedido, así que puedes pagar por transferencia.`);
   }
@@ -505,15 +506,47 @@ export function textoCobroConCredito(resultado, { resumen, moneda }) {
   };
 }
 
-function pedirPago(servicio, resumen, datosPago, renta = null) {
+function pedirPago(servicio, resumen, pagos, renta = null) {
+  return cobrar({ tipo: 'pedido', servicio, resumen, renta }, pagos);
+}
+
+function textoCobradores(cobradores) {
+  return ['¿A quién le quieres hacer la transferencia?', '', ...cobradores.map((c, i) => `*${i + 1}.* ${c.nombre}`), '', 'Responde con el número, o *0* para volver al menú.'].join('\n');
+}
+
+// Con varias personas que cobran, el cliente elige a quién pagar; el comprobante
+// solo le llega a esa persona (`cobrador` es su posición en la lista).
+function cobrar(pendiente, { datosPago, cobradores }) {
+  if (cobradores.length >= 2) {
+    return {
+      respuestas: [`Perfecto, tu pedido: *${pendiente.resumen}*.`, textoCobradores(cobradores)],
+      estado: { paso: 'elegir-cobrador', pendiente },
+    };
+  }
+  if (cobradores.length === 1) return cobrarA(pendiente, cobradores[0], 0, true);
+  return cobrarA(pendiente, { datos: datosPago }, null, true);
+}
+
+function cobrarA(pendiente, cobrador, indice, conResumen = false) {
+  const { resumen } = pendiente;
+  const destino = cobrador.nombre ? ` a *${cobrador.nombre}*` : '';
+  const respuestas = conResumen ? [`Perfecto, tu pedido: *${resumen}*.`] : [];
+  const despues = pendiente.tipo === 'recarga' ? ' Cuando lo confirmemos, el crédito aparece en tu cuenta de la página.' : '';
+  respuestas.push(`Haz la transferencia${destino}:\n\n${cobrador.datos}\n\nLuego envía aquí la *foto del comprobante*.${despues}`);
+  const paraQuien = cobrador.nombre ? ` Paga a ${cobrador.nombre}.` : '';
+  if (pendiente.tipo === 'recarga') {
+    return {
+      respuestas,
+      estado: { paso: 'pago', resumen, recarga: true },
+      acciones: [{ tipo: 'crearRecarga', monto: pendiente.monto, resumen, cobrador: indice }],
+      aviso: { texto: `Quiere ${resumen.charAt(0).toLowerCase()}${resumen.slice(1)}.${paraQuien} Esperando comprobante.` },
+    };
+  }
   return {
-    respuestas: [
-      `Perfecto, tu pedido: *${resumen}*.`,
-      `Haz el pago a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*.`,
-    ],
+    respuestas,
     estado: { paso: 'pago', resumen },
-    acciones: [{ tipo: 'crearPedido', servicio, resumen, renta }],
-    aviso: { texto: `Nuevo pedido: ${resumen}. Esperando comprobante.` },
+    acciones: [{ tipo: 'crearPedido', servicio: pendiente.servicio, resumen, renta: pendiente.renta ?? null, cobrador: indice }],
+    aviso: { texto: `Nuevo pedido: ${resumen}.${paraQuien} Esperando comprobante.` },
   };
 }
 

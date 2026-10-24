@@ -43,7 +43,7 @@ Desde un número de `NUMERO_ADMIN` le escribes al bot y él actúa. Puedes poner
 | `/casos` | Lista los casos abiertos |
 | `/ayuda` | Muestra los comandos |
 
-Cada admin puede tener su propia cuenta para transferencias con `DATOS_TRANSFERENCIA_1`, `DATOS_TRANSFERENCIA_2`, etc. (en el orden de `NUMERO_ADMIN`). Los clientes se reparten por turnos entre esas cuentas (cada cliente conserva la suya mientras el bot siga encendido) y el aviso del pedido o la recarga y el comprobante solo le llegan al admin dueño de esa cuenta; también es él quien lo aprueba, y a los demás no se les avisa.
+Para que el cliente elija a quién pagar, define a cada persona con `PAGO_1_NOMBRE`, `PAGO_1_NUMEROS` (uno o varios, separados por comas) y `PAGO_1_DATOS`, luego `PAGO_2_...`, etc. Con dos o más, antes de los datos de transferencia el bot pregunta "¿A quién le quieres hacer la transferencia?" con los nombres. El aviso del pedido o la recarga y el comprobante solo les llegan a los números de esa persona, que son quienes lo aprueban; a los demás no se les avisa. Esos números también cuentan como admins.
 
 Cuando un cliente pide un asesor, el bot le dice que espere mientras lo enlaza con un asesor, y a todos los admins les llega el aviso con `/tomar 12`. El primero que lo toma lo atiende; si otro intenta tomarlo, el bot le dice quién lo atiende. Cada admin tiene su propio chat activo. Mientras el cliente está con el asesor, el bot no le contesta y todo lo que escribe te llega con su número de caso. Los casos viven en memoria: si reinicias el bot, los anteriores ya no se pueden usar.
 

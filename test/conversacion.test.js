@@ -294,7 +294,7 @@ test('recargar crédito: muestra el saldo y pide el monto', () => {
 
 test('recargar crédito: con un monto válido pide la transferencia y crea la recarga', () => {
   const r = procesarMensaje({ texto: '$1,500 pesos' }, { paso: 'recarga' }, conSaldo);
-  assert.deepEqual(r.acciones, [{ tipo: 'crearRecarga', monto: 1500, resumen: 'Recarga de crédito de $1500' }]);
+  assert.deepEqual(r.acciones, [{ tipo: 'crearRecarga', monto: 1500, resumen: 'Recarga de crédito de $1500', cobrador: null }]);
   assert.deepEqual(r.estado, { paso: 'pago', resumen: 'Recarga de crédito de $1500', recarga: true });
   assert.match(r.respuestas[1], /Banco X/);
   const comprobante = procesarMensaje({ tieneComprobante: true }, r.estado, conSaldo);
@@ -313,4 +313,39 @@ test('recargar crédito sin cuenta en la página pasa a un asesor', () => {
   const r = procesarMensaje({ texto: 'recargar' }, { paso: 'menu' }, contextoBase);
   assert.equal(r.estado.paso, 'asesor');
   assert.match(r.aviso.texto, /recargar crédito/);
+});
+
+const conCobradores = {
+  ...contextoBase,
+  cobradores: [
+    { nombre: 'Anthony', datos: 'BBVA\nCuenta 111' },
+    { nombre: 'Thalia', datos: 'Banorte\nCuenta 222' },
+  ],
+};
+
+test('con varias personas que cobran, el cliente elige a quién pagar', () => {
+  const r1 = procesarMensaje({ texto: '1' }, { paso: 'tipo', platform: 'netflix' }, conCobradores);
+  assert.equal(r1.estado.paso, 'elegir-cobrador');
+  assert.match(r1.respuestas[1], /\*1\.\* Anthony\n\*2\.\* Thalia/);
+  assert.equal(r1.acciones, undefined);
+
+  const r2 = procesarMensaje({ texto: '2' }, r1.estado, conCobradores);
+  assert.match(r2.respuestas[0], /transferencia a \*Thalia\*:\n\nBanorte\nCuenta 222/);
+  assert.equal(r2.acciones[0].tipo, 'crearPedido');
+  assert.equal(r2.acciones[0].cobrador, 1);
+  assert.match(r2.aviso.texto, /Paga a Thalia/);
+  assert.equal(r2.estado.paso, 'pago');
+});
+
+test('la recarga también deja elegir a quién pagar', () => {
+  const r1 = procesarMensaje({ texto: '300' }, { paso: 'recarga' }, { ...conCobradores, cliente: { id: 'c1', nombre: 'Ana', saldo: 0 } });
+  const r2 = procesarMensaje({ texto: '1' }, r1.estado, conCobradores);
+  assert.deepEqual(r2.acciones, [{ tipo: 'crearRecarga', monto: 300, resumen: 'Recarga de crédito de $300', cobrador: 0 }]);
+  assert.equal(r2.estado.recarga, true);
+});
+
+test('con una sola persona que cobra, no pregunta', () => {
+  const r = procesarMensaje({ texto: '1' }, { paso: 'tipo', platform: 'netflix' }, { ...contextoBase, cobradores: [conCobradores.cobradores[0]] });
+  assert.equal(r.estado.paso, 'pago');
+  assert.equal(r.acciones[0].cobrador, 0);
 });

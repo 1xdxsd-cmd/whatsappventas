@@ -1,7 +1,6 @@
 import pino from 'pino';
 import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
-import { crearRepartoDePagos } from './admin/reparto.js';
 import { procesarMensaje, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
@@ -29,7 +28,6 @@ if (!pagina) {
 }
 
 const casos = crearRegistroDeCasos();
-const reparto = crearRepartoDePagos(config.cuentasAdmin);
 
 async function cargarContexto(telefono) {
   const contexto = {
@@ -42,12 +40,8 @@ async function cargarContexto(telefono) {
     rentas: [],
     paginaCaida: false,
   };
-  // Con cuentas por admin, el cliente paga a la de su turno y solo ese admin recibe sus pagos.
-  const cuenta = reparto.cuentaPara(telefono);
-  if (cuenta) {
-    contexto.datosPago = cuenta.datos;
-    contexto.adminDelPago = cuenta.numeroAdmin;
-  }
+  // El cliente elige a quién pagar; solo esa persona recibe sus pagos.
+  contexto.cobradores = config.cobradores.map(({ nombre, datos }) => ({ nombre, datos }));
   if (!pagina) return contexto;
   try {
     const [servicios, metodos, cliente] = await Promise.all([
@@ -57,7 +51,7 @@ async function cargarContexto(telefono) {
     ]);
     if (servicios.length > 0) contexto.servicios = servicios;
     const datosPago = textoMetodosPago(metodos);
-    if (datosPago && !config.datosTransferenciaEnEnv && config.cuentasAdmin.length === 0) contexto.datosPago = datosPago;
+    if (datosPago && !config.datosTransferenciaEnEnv && config.cobradores.length === 0) contexto.datosPago = datosPago;
     if (cliente) {
       contexto.cliente = { id: cliente.id, nombre: cliente.name, usuario: cliente.username, saldo: Number(cliente.balance) || 0 };
       // Orden fijo para que el número que elige el cliente no cambie entre mensajes.
@@ -80,7 +74,7 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
   const avisos = [];
   let caso = estado.casoId ? casos.obtener(estado.casoId) : null;
   const datosCliente = { jid, telefono, nombre, cliente: contexto.cliente ?? { id: null, nombre } };
-  const datosPago = { adminDelPago: contexto.adminDelPago ?? null };
+  const delPago = (accion) => ({ numerosDelPago: config.cobradores[accion.cobrador]?.numeros ?? null });
 
   for (const accion of acciones) {
     try {
@@ -95,7 +89,7 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
               notes: notas,
             })
           : null;
-        caso = casos.abrir({ ...datosCliente, tipo: 'pedido', ...datosPago, servicio: accion.servicio, resumen: accion.resumen, renta: accion.renta ?? undefined, pedidoId: pedido?.id ?? null, notas });
+        caso = casos.abrir({ ...datosCliente, tipo: 'pedido', ...delPago(accion), servicio: accion.servicio, resumen: accion.resumen, renta: accion.renta ?? undefined, pedidoId: pedido?.id ?? null, notas });
         estado = { ...estado, casoId: caso.id, pedidoId: caso.pedidoId, notas };
       }
       if (accion.tipo === 'comprobanteRecibido') {
@@ -118,7 +112,7 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
         caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, resumen: accion.motivo, caidaId: reporte?.id ?? null });
       }
       if (accion.tipo === 'crearRecarga' && contexto.cliente) {
-        caso = casos.abrir({ ...datosCliente, tipo: 'recarga', ...datosPago, monto: accion.monto, resumen: accion.resumen });
+        caso = casos.abrir({ ...datosCliente, tipo: 'recarga', ...delPago(accion), monto: accion.monto, resumen: accion.resumen });
         estado = { ...estado, casoId: caso.id };
       }
       if (accion.tipo === 'cambiarClave' && contexto.cliente) {
@@ -219,9 +213,9 @@ async function obtenerJidAdmin(numero) {
 }
 
 // Avisa a todos los admins (menos al número `excepto`), o solo al chat `soloA`.
-// `soloNumero` es para los pagos que van a la cuenta de un admin.
-async function avisarAdmin(texto, mensajeParaReenviar, { excepto = null, soloA = null, soloNumero = null } = {}) {
-  const numeros = soloNumero ? [soloNumero] : config.numerosAdmin.filter((n) => n !== excepto);
+// `soloNumeros` es para los pagos que van a la cuenta de una persona.
+async function avisarAdmin(texto, mensajeParaReenviar, { excepto = null, soloA = null, soloNumeros = null } = {}) {
+  const numeros = soloNumeros?.length ? soloNumeros : config.numerosAdmin.filter((n) => n !== excepto);
   const destinos = soloA ? [soloA] : await Promise.all(numeros.map(obtenerJidAdmin));
   for (const jid of destinos) {
     await conexion.enviarTexto(jid, texto);
@@ -277,7 +271,7 @@ async function atender(mensaje) {
     const pista = caso && PISTAS[caso.tipo] ? ` ${PISTAS[caso.tipo](caso.id)}` : '';
     const numero = caso ? `#${caso.id} ` : '';
     await avisarAdmin(`🔔 ${numero}${quien}: ${resultado.aviso.texto}${pista}`, resultado.aviso.reenviar ? mensaje : null, {
-      soloNumero: caso?.adminDelPago ?? null,
+      soloNumeros: caso?.numerosDelPago ?? null,
     });
   }
   for (const aviso of ejecutado.avisos) {
