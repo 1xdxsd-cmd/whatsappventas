@@ -7,13 +7,23 @@ const numerosAdmin = String(process.env.NUMERO_ADMIN ?? '')
   .map(normalizarNumero)
   .filter(Boolean);
 
+const conSaltos = (texto) => texto.replace(/\\n/g, '\n');
+
+// Cuenta de transferencia propia de cada admin: DATOS_TRANSFERENCIA_1 es la del
+// primer número de NUMERO_ADMIN, DATOS_TRANSFERENCIA_2 la del segundo, etc.
+const cuentasAdmin = numerosAdmin
+  .map((numero, i) => ({ numeroAdmin: numero, datos: process.env[`DATOS_TRANSFERENCIA_${i + 1}`]?.trim() }))
+  .filter((cuenta) => cuenta.datos)
+  .map((cuenta) => ({ ...cuenta, datos: conSaltos(cuenta.datos) }));
+
 export const config = {
   numerosAdmin,
+  cuentasAdmin,
   negocio: process.env.NOMBRE_NEGOCIO || 'Streaming Thalia',
   moneda: process.env.MONEDA || '$',
   // Si los escribiste en el .env, mandan sobre los métodos de pago de la página.
   datosTransferenciaEnEnv: Boolean(process.env.DATOS_TRANSFERENCIA?.trim()),
-  datosTransferencia: (process.env.DATOS_TRANSFERENCIA || 'Pide los datos de transferencia a un asesor.').replace(/\\n/g, '\n'),
+  datosTransferencia: conSaltos(process.env.DATOS_TRANSFERENCIA || 'Pide los datos de transferencia a un asesor.'),
   carpetaSesion: process.env.CARPETA_SESION || 'auth',
   numeroBot: normalizarNumeroBot(process.env.NUMERO_BOT),
   codigoVinculacion: process.env.CODIGO_VINCULACION,

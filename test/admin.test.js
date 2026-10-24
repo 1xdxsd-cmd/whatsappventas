@@ -214,3 +214,11 @@ test('/rechazar de una recarga deja al cliente mandar otro comprobante', async (
   assert.equal(p.estadosGuardados.get(CLIENTE).recarga, true);
   assert.equal(p.estadosGuardados.get(CLIENTE).paso, 'pago');
 });
+
+test('un pago a la cuenta de un admin no se les cuenta a los demás', async () => {
+  const p = preparar({ cuentas: [{ email: 'libre@x.com', password: 'clave' }] });
+  const caso = p.casos.abrir({ ...pedido, adminDelPago: '525500000000' });
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`), '525500000000');
+  assert.equal(caso.abierto, false);
+  assert.deepEqual(p.avisosATodos, []);
+});

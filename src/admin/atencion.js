@@ -188,7 +188,8 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
       case 'resuelto': {
         const tipoAntes = caso.tipo;
         await { aprobar: () => aprobar(caso), rechazar: () => rechazar(caso, resto), resuelto: () => resolver(caso, resto) }[comando]();
-        if (!caso.abierto || caso.tipo !== tipoAntes || comando === 'rechazar') {
+        // Los pagos a la cuenta de un admin solo le importan a ese admin.
+        if (!caso.adminDelPago && (!caso.abierto || caso.tipo !== tipoAntes || comando === 'rechazar')) {
           await contarALosDemas(`✓ /${comando} #${caso.id} ${caso.nombre}`);
         }
         return undefined;
