@@ -1,0 +1,5 @@
+node_modules/
+.env
+# Sesión de WhatsApp: equivale a tener tu teléfono abierto, nunca la subas
+auth/
+*.log

@@ -1,0 +1,26 @@
+{
+  "name": "whatsappventas",
+  "version": "0.1.0",
+  "description": "Agente de WhatsApp para ventas de servicios de streaming (Baileys + Node.js)",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1xdxsd-cmd/whatsappventas.git"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "dotenv": "^18.0.9",
+    "pino": "^10.4.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
