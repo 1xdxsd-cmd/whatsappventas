@@ -13,13 +13,15 @@ test('interpreta los comandos de admin', () => {
 
 const ADMIN = '525500000000@s.whatsapp.net';
 const CLIENTE = '5215512345678@s.whatsapp.net';
-const texto = (t) => ({ key: { remoteJid: ADMIN }, message: { conversation: t } });
+const OTRO_ADMIN = '525511111111@s.whatsapp.net';
+const texto = (t) => ({ key: { remoteJid: ADMIN }, pushName: 'Ana', message: { conversation: t } });
 
 function preparar({ cuentas = [], fallar = {} } = {}) {
   const enviados = [];
   const reenviados = [];
   const llamadas = [];
   const estadosGuardados = new Map();
+  const avisosATodos = [];
   const conexion = {
     enviarTexto: async (jid, t) => enviados.push([jid, t]),
     reenviar: async (jid, m) => reenviados.push([jid, m]),
@@ -51,10 +53,11 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
     casos,
     estados: { obtener: (jid) => estadosGuardados.get(jid), guardar: (jid, e) => estadosGuardados.set(jid, e) },
     logger: { error() {} },
+    avisarAdmins: async (...a) => avisosATodos.push(a),
   });
   const alCliente = () => enviados.filter(([jid]) => jid === CLIENTE).map(([, t]) => t);
   const alAdmin = () => enviados.filter(([jid]) => jid === ADMIN).map(([, t]) => t);
-  return { admin, casos, llamadas, estadosGuardados, alCliente, alAdmin, reenviados };
+  return { admin, casos, llamadas, estadosGuardados, alCliente, alAdmin, reenviados, enviados, avisosATodos };
 }
 
 const servicio = { platform: 'netflix', type: 'perfil', price: 80, duration: 30 };
@@ -114,29 +117,56 @@ test('#N texto envía al cliente, y /resuelto cierra el reporte en la página', 
   assert.equal(p.casos.obtener(caso.id).abierto, false);
 });
 
-test('chat con asesor: lo que escribe el admin le llega al cliente', async () => {
+test('chat con asesor: /tomar enlaza al cliente y lo que escribe el admin le llega', async () => {
   const p = preparar();
   const caso = p.casos.abrir({ jid: CLIENTE, nombre: 'Laura', tipo: 'asesor' });
-  assert.equal(p.admin.abrirChat(caso), true);
+  await p.admin.manejar(texto(`/tomar ${caso.id}`), '525500000000');
+  assert.match(p.alCliente()[0], /Ya te enlazamos con un asesor/);
+  assert.deepEqual(p.estadosGuardados.get(CLIENTE), { paso: 'asesor', casoId: caso.id });
+  assert.deepEqual(p.avisosATodos, [[`👤 #${caso.id} Laura ya está siendo atendido (Ana)`, { excepto: '525500000000' }]]);
+  assert.equal(caso.admin, ADMIN);
+
   await p.admin.manejar(texto('Hola Laura, ¿en qué te ayudo?'));
   await p.admin.manejar({ key: { remoteJid: ADMIN }, message: { imageMessage: { caption: '' } } });
-  assert.deepEqual(p.alCliente(), ['Hola Laura, ¿en qué te ayudo?']);
+  assert.equal(p.alCliente()[1], 'Hola Laura, ¿en qué te ayudo?');
   assert.equal(p.reenviados.length, 1);
 
   await p.admin.manejar(texto('/fin'));
   assert.match(p.alCliente().at(-1), /El asesor terminó la conversación/);
   assert.deepEqual(p.estadosGuardados.get(CLIENTE), { paso: 'menu' });
-  assert.equal(p.admin.chatActivo, null);
+  assert.equal(p.admin.chatActivoDe(ADMIN), null);
+  assert.equal(caso.abierto, false);
 });
 
-test('un segundo chat no le quita el activo al primero', async () => {
+test('si otro admin ya tomó al cliente, no se lo quita', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir({ jid: CLIENTE, nombre: 'Laura', tipo: 'asesor' });
+  await p.admin.manejar(texto(`/tomar ${caso.id}`), '525500000000');
+  await p.admin.manejar({ key: { remoteJid: OTRO_ADMIN }, pushName: 'Beto', message: { conversation: `/tomar ${caso.id}` } }, '525511111111');
+  assert.equal(caso.admin, ADMIN);
+  assert.match(p.enviados.at(-1)[1], /ya lo atiende Ana/);
+  assert.equal(p.enviados.at(-1)[0], OTRO_ADMIN);
+  assert.equal(p.admin.chatActivoDe(OTRO_ADMIN), null);
+});
+
+test('cada admin tiene su propio chat activo', async () => {
   const p = preparar();
   const uno = p.casos.abrir({ jid: CLIENTE, nombre: 'Laura', tipo: 'asesor' });
   const dos = p.casos.abrir({ jid: 'otro@s.whatsapp.net', nombre: 'Pedro', tipo: 'asesor' });
-  assert.equal(p.admin.abrirChat(uno), true);
-  assert.equal(p.admin.abrirChat(dos), false);
-  await p.admin.manejar(texto(`/chat ${dos.id}`));
-  assert.equal(p.admin.chatActivo, dos.id);
+  await p.admin.manejar(texto(`/tomar ${uno.id}`), '525500000000');
+  await p.admin.manejar({ key: { remoteJid: OTRO_ADMIN }, pushName: 'Beto', message: { conversation: `/chat ${dos.id}` } }, '525511111111');
+  assert.equal(p.admin.chatActivoDe(ADMIN), uno.id);
+  assert.equal(p.admin.chatActivoDe(OTRO_ADMIN), dos.id);
+});
+
+test('un pedido ya aprobado no se aprueba dos veces, y los demás admins se enteran', async () => {
+  const p = preparar({ cuentas: [{ email: 'libre@x.com', password: 'clave' }] });
+  const caso = p.casos.abrir(pedido);
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`), '525500000000');
+  assert.deepEqual(p.avisosATodos.at(-1), [`✓ /aprobar #${caso.id} Laura (Ana)`, { excepto: '525500000000' }]);
+  await p.admin.manejar({ key: { remoteJid: OTRO_ADMIN }, message: { conversation: `/aprobar ${caso.id}` } }, '525511111111');
+  assert.equal(p.llamadas.filter(([n]) => n === 'entregarPagado').length, 1);
+  assert.match(p.enviados.at(-1)[1], /ya está cerrado/);
 });
 
 test('sin chat activo o con un caso que no existe, responde con ayuda', async () => {

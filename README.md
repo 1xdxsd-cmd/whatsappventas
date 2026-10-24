@@ -30,7 +30,7 @@ El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
 ## Atender desde tu WhatsApp (admin)
 
-Desde el número de `NUMERO_ADMIN` le escribes al bot y él actúa. Cada pedido, reporte o chat tiene un número de caso (#12) que aparece en los avisos.
+Desde un número de `NUMERO_ADMIN` le escribes al bot y él actúa. Puedes poner varios administradores separados por comas: a todos les llegan los avisos y cualquiera puede usar los comandos. Cuando uno aprueba, rechaza o resuelve un caso, a los demás les llega un aviso, y un caso ya cerrado no se puede aprobar dos veces. Cada pedido, reporte o chat tiene un número de caso (#12) que aparece en los avisos.
 
 | Comando | Qué hace |
 | --- | --- |
@@ -38,12 +38,12 @@ Desde el número de `NUMERO_ADMIN` le escribes al bot y él actúa. Cada pedido,
 | `/aprobar 12` | Confirma el pago por transferencia: crea la renta con una cuenta libre (o renueva), le manda los datos al cliente y pasa el pedido a Ventas |
 | `/rechazar 12 motivo` | Le avisa al cliente que no se confirmó el pago; puede mandar otro comprobante |
 | `/resuelto 12 texto` | Marca el reporte como resuelto en la página y le manda el texto al cliente |
-| `/chat 12` | Abre el chat con ese cliente: lo que escribas le llega y lo que él escriba te llega a ti |
+| `/tomar 12` | Atiendes tú a ese cliente: lo que escribas le llega y lo que él escriba te llega solo a ti. A los demás admins se les avisa que ya está atendido (`/chat 12` hace lo mismo) |
 | `/fin` | Termina el chat activo; el cliente vuelve al bot |
 | `/casos` | Lista los casos abiertos |
 | `/ayuda` | Muestra los comandos |
 
-Cuando un cliente pide un asesor, su chat queda activo solo si no estás atendiendo a otro; si no, usa `/chat 12`. Mientras está con el asesor, el bot no le contesta y todo lo que escribe te llega con su número de caso. Los casos viven en memoria: si reinicias el bot, los anteriores ya no se pueden usar.
+Cuando un cliente pide un asesor, el bot le dice que espere mientras lo enlaza con un asesor, y a todos los admins les llega el aviso con `/tomar 12`. El primero que lo toma lo atiende; si otro intenta tomarlo, el bot le dice quién lo atiende. Cada admin tiene su propio chat activo. Mientras el cliente está con el asesor, el bot no le contesta y todo lo que escribe te llega con su número de caso. Los casos viven en memoria: si reinicias el bot, los anteriores ya no se pueden usar.
 
 ## Cómo correrlo
 

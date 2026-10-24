@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import { normalizarNumero, normalizarNumeroBot } from './whatsapp/conexion.js';
 
-const numeroAdmin = normalizarNumero(process.env.NUMERO_ADMIN);
+// Uno o varios administradores, separados por comas.
+const numerosAdmin = String(process.env.NUMERO_ADMIN ?? '')
+  .split(',')
+  .map(normalizarNumero)
+  .filter(Boolean);
 
 export const config = {
-  numeroAdmin,
-  // Respaldo; el bot le pregunta a WhatsApp el chat correcto del admin al conectarse.
-  jidAdmin: numeroAdmin ? `${numeroAdmin}@s.whatsapp.net` : null,
+  numerosAdmin,
   negocio: process.env.NOMBRE_NEGOCIO || 'Streaming Thalia',
   moneda: process.env.MONEDA || '$',
   datosTransferencia: (process.env.DATOS_TRANSFERENCIA || 'Pide los datos de transferencia a un asesor.').replace(/\\n/g, '\n'),

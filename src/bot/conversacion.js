@@ -519,7 +519,7 @@ function pedirPago(servicio, resumen, datosPago, renta = null) {
 
 function pasarAAsesor(textoAviso) {
   return {
-    respuestas: ['Listo, un asesor te escribirá en breve por aquí. Escribe *menu* cuando quieras volver al bot.'],
+    respuestas: ['⏳ Espera un momento, te estamos enlazando con un asesor. Escribe *menu* si quieres volver al bot.'],
     estado: { paso: 'asesor' },
     aviso: { texto: textoAviso },
   };

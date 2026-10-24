@@ -7,7 +7,7 @@ export const AYUDA = [
   '*/aprobar 12*: confirma el pago, entrega la cuenta (o renueva) y pasa el pedido a Ventas; en una recarga, suma el crédito',
   '*/rechazar 12 motivo*: avisa al cliente que no se confirmó el pago',
   '*/resuelto 12 texto*: marca el reporte como resuelto en la página y le manda el texto al cliente',
-  '*/chat 12*: lo que escribas después le llega al cliente del caso 12, y lo que él escriba te llega a ti',
+  '*/tomar 12*: atiendes tú al cliente del caso 12 (a los demás admins se les avisa). Lo que escribas le llega a él, y lo que él escriba te llega solo a ti',
   '*/fin*: termina el chat activo y el cliente vuelve al bot',
   '*/casos*: lista los casos abiertos',
   '*/ayuda*: esta lista',

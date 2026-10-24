@@ -13,7 +13,7 @@ import { crearConexion, leerMensaje, numeroDeChat } from './whatsapp/conexion.js
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-if (!config.numeroAdmin) {
+if (config.numerosAdmin.length === 0) {
   logger.warn('NUMERO_ADMIN no está configurado: no te llegarán avisos ni podrás usar los comandos de admin.');
 }
 
@@ -176,9 +176,11 @@ const conexion = crearConexion({
   codigoVinculacion: config.codigoVinculacion,
   logger,
   alRecibir(mensaje) {
-    const esAdmin = config.numeroAdmin && mismoTelefono(numeroDeChat(mensaje.key), config.numeroAdmin);
-    const tarea = esAdmin ? () => admin.manejar(mensaje) : () => atender(mensaje);
-    return enOrdenPorChat(mensaje.key.remoteJid, tarea);
+    const numeroAdmin = config.numerosAdmin.find((n) => mismoTelefono(numeroDeChat(mensaje.key), n));
+    // Los comandos de todos los admins van en una sola fila, para que dos no
+    // tomen o aprueben el mismo caso al mismo tiempo.
+    if (numeroAdmin) return enOrdenPorChat('admins', () => admin.manejar(mensaje, numeroAdmin));
+    return enOrdenPorChat(mensaje.key.remoteJid, () => atender(mensaje));
   },
 });
 
@@ -190,24 +192,32 @@ const admin = crearAtencionAdmin({
   estados: { obtener: obtenerEstado, guardar: guardarEstado },
   logger,
   moneda: config.moneda,
+  avisarAdmins: (texto, { excepto } = {}) => avisarAdmin(texto, null, { excepto }),
 });
 
-// WhatsApp dice cuál es el chat real del admin (con o sin el "1" de celular).
-let jidAdmin = null;
-async function obtenerJidAdmin() {
-  if (!config.numeroAdmin) return null;
-  if (!jidAdmin) {
-    jidAdmin = await conexion.buscarJid(config.numeroAdmin).catch(() => null);
-    if (!jidAdmin) logger.warn({ numero: config.numeroAdmin }, 'WhatsApp no reconoce NUMERO_ADMIN; reviso que esté bien escrito');
+// WhatsApp dice cuál es el chat real de cada admin (con o sin el "1" de celular).
+const jidsAdmin = new Map();
+async function obtenerJidAdmin(numero) {
+  if (!jidsAdmin.has(numero)) {
+    const jid = await conexion.buscarJid(numero).catch(() => null);
+    if (!jid) {
+      logger.warn({ numero }, 'WhatsApp no reconoce este número de NUMERO_ADMIN; revisa que esté bien escrito');
+      return `${numero}@s.whatsapp.net`;
+    }
+    jidsAdmin.set(numero, jid);
   }
-  return jidAdmin ?? config.jidAdmin;
+  return jidsAdmin.get(numero);
 }
 
-async function avisarAdmin(texto, mensajeParaReenviar) {
-  const jid = await obtenerJidAdmin();
-  if (!jid) return;
-  await conexion.enviarTexto(jid, texto);
-  if (mensajeParaReenviar) await conexion.reenviar(jid, mensajeParaReenviar);
+// Avisa a todos los admins (menos al número `excepto`), o solo al chat `soloA`.
+async function avisarAdmin(texto, mensajeParaReenviar, { excepto = null, soloA = null } = {}) {
+  const destinos = soloA
+    ? [soloA]
+    : await Promise.all(config.numerosAdmin.filter((n) => n !== excepto).map(obtenerJidAdmin));
+  for (const jid of destinos) {
+    await conexion.enviarTexto(jid, texto);
+    if (mensajeParaReenviar) await conexion.reenviar(jid, mensajeParaReenviar);
+  }
 }
 
 async function atender(mensaje) {
@@ -223,22 +233,25 @@ async function atender(mensaje) {
 
   // Cliente en chat con Anthony: su mensaje le llega a él, salvo que escriba "menu".
   if (anterior.paso === 'asesor') {
-    const caso = casos.abiertoDe(jid, 'asesor') ?? (admin.chatActivo && casos.obtener(admin.chatActivo)?.jid === jid ? casos.obtener(admin.chatActivo) : null);
+    const guardado = anterior.casoId ? casos.obtener(anterior.casoId) : null;
+    const caso = guardado?.abierto && guardado.jid === jid ? guardado : casos.abiertoDe(jid, 'asesor');
     const resultado = procesarMensaje(leido, anterior, contexto);
+    const archivo = leido.tieneArchivo ? mensaje : null;
     if (resultado.estado.paso === 'asesor') {
       if (!caso) {
         // Por ejemplo, tras reiniciar el bot: se abre un caso nuevo para no perder el mensaje.
         const nuevo = casos.abrir({ jid, telefono, nombre, tipo: 'asesor' });
-        admin.abrirChat(nuevo);
-        await avisarAdmin(`💬 #${nuevo.id} ${quien}: ${leido.texto || '(archivo)'}`, leido.tieneArchivo ? mensaje : null);
+        await avisarAdmin(`💬 #${nuevo.id} ${quien}: ${leido.texto || '(archivo)'}\nPara atenderlo: */tomar ${nuevo.id}*`, archivo);
         return;
       }
-      await avisarAdmin(`💬 #${caso.id} ${nombre}: ${leido.texto || '(archivo)'}`, leido.tieneArchivo ? mensaje : null);
+      // Si ya lo tomó un admin, solo le llega a ese; si no, a todos.
+      const pista = caso.admin ? '' : `\nPara atenderlo: */tomar ${caso.id}*`;
+      await avisarAdmin(`💬 #${caso.id} ${nombre}: ${leido.texto || '(archivo)'}${pista}`, archivo, { soloA: caso.admin ?? null });
       return;
     }
     if (caso) {
-      admin.clienteSalio(caso);
-      await avisarAdmin(`#${caso.id} ${nombre} volvió al bot (escribió "menu").`);
+      const quienAtendia = admin.clienteSalio(caso);
+      await avisarAdmin(`#${caso.id} ${nombre} volvió al bot (escribió "menu").`, null, { soloA: quienAtendia });
     }
   }
 
@@ -260,15 +273,12 @@ async function atender(mensaje) {
     await avisarAdmin(`🔔 ${aviso.caso ? `#${aviso.caso.id} ` : ''}${quien}: ${aviso.texto}`);
   }
 
-  // Entró al chat con asesor: se abre un caso y, si Anthony no atiende otro, queda activo.
+  // Entró al chat con asesor: se abre un caso, el cliente espera y el primer
+  // admin que escriba /tomar lo atiende.
   if (ejecutado.estado.paso === 'asesor' && anterior.paso !== 'asesor') {
     const caso = casos.abrir({ jid, telefono, nombre, tipo: 'asesor' });
-    const activo = admin.abrirChat(caso);
-    await avisarAdmin(
-      activo
-        ? `💬 Chat #${caso.id} con ${nombre} activo: lo que me escribas le llega. */fin* para terminar.`
-        : `💬 ${nombre} espera un asesor (#${caso.id}). Escribe */chat ${caso.id}* para atenderlo o #${caso.id} texto para responderle.`,
-    );
+    guardarEstado(jid, { ...ejecutado.estado, casoId: caso.id });
+    await avisarAdmin(`💬 ${quien} espera un asesor (#${caso.id}). Escribe */tomar ${caso.id}* para atenderlo.`);
   }
 }
 

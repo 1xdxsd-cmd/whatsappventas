@@ -2,13 +2,24 @@ import { formatearPrecio, nombrePlataforma } from '../catalogo/servicios.js';
 import { leerMensaje } from '../whatsapp/conexion.js';
 import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
 
-// Atiende los mensajes que Anthony le escribe al bot: comandos y chat con
-// clientes que pidieron un asesor.
-export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, logger, moneda = '$' }) {
-  let chatActivo = null; // número de caso cuyo cliente recibe lo que escribe Anthony
-  let chatAdmin = null; // se responde en el mismo chat desde el que escribió Anthony
+// Atiende los mensajes que los administradores le escriben al bot: comandos y
+// chat con clientes que pidieron un asesor. Puede haber varios administradores:
+// cada uno tiene su propio chat activo, y un cliente lo atiende solo quien lo tomó.
+// `avisarAdmins(texto, { excepto })` avisa a todos los administradores menos
+// al número `excepto`.
+export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, logger, moneda = '$', avisarAdmins = async () => {} }) {
+  const chatsActivos = new Map(); // chat del admin -> número de caso cuyo cliente recibe lo que escribe
+  let chatAdmin = null; // se responde en el mismo chat desde el que escribió el admin
+  let nombreAdmin = 'un asesor';
+  let numeroAdmin = null; // número del admin que escribió, para no avisarle a él mismo
 
   const responder = (texto) => conexion.enviarTexto(chatAdmin, texto);
+  // Lo que hace un admin con un caso se les cuenta a los demás, para que nadie lo repita.
+  const contarALosDemas = (texto) => avisarAdmins(`${texto} (${nombreAdmin})`, { excepto: numeroAdmin });
+
+  function soltarChat(caso) {
+    for (const [admin, id] of chatsActivos) if (id === caso.id) chatsActivos.delete(admin);
+  }
 
   async function enviarAlCliente(caso, mensaje, texto) {
     if (texto) await conexion.enviarTexto(caso.jid, texto);
@@ -18,6 +29,25 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
 
   function devolverAlBot(caso) {
     estados.guardar(caso.jid, { paso: 'menu' });
+    soltarChat(caso);
+    caso.admin = null;
+  }
+
+  async function tomar(caso) {
+    if (caso.admin && caso.admin !== chatAdmin) {
+      return responder(`#${caso.id} ${caso.nombre} ya lo atiende ${caso.nombreAdmin}.`);
+    }
+    const yaEraMio = caso.admin === chatAdmin;
+    caso.admin = chatAdmin;
+    caso.nombreAdmin = nombreAdmin;
+    chatsActivos.set(chatAdmin, caso.id);
+    // Mientras habla con un asesor, el bot no le contesta al cliente.
+    estados.guardar(caso.jid, { paso: 'asesor', casoId: caso.id });
+    if (!yaEraMio) {
+      await conexion.enviarTexto(caso.jid, '✅ Ya te enlazamos con un asesor. Escríbele por aquí; cuando termines, escribe *menu* para volver al bot.');
+      await contarALosDemas(`👤 #${caso.id} ${caso.nombre} ya está siendo atendido`);
+    }
+    return responder(`💬 Chat activo con #${caso.id} ${caso.nombre}. Lo que escribas le llega. */fin* para terminar.`);
   }
 
   async function aprobarRecarga(caso) {
@@ -115,35 +145,38 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     await conexion.enviarTexto(caso.jid, 'El asesor terminó la conversación. Escribe *menu* cuando quieras volver a usar el bot.');
     devolverAlBot(caso);
     if (caso.tipo === 'asesor') casos.cerrar(caso.id);
-    if (chatActivo === caso.id) chatActivo = null;
     return responder(`✓ Chat #${caso.id} terminado.`);
   }
 
-  async function manejar(mensaje) {
+  async function manejar(mensaje, numeroQueEscribe = null) {
     chatAdmin = mensaje.key.remoteJid;
+    numeroAdmin = numeroQueEscribe;
     const { texto } = leerMensaje(mensaje);
     const { comando, caso: numero, resto } = interpretarComando(texto);
 
+    nombreAdmin = mensaje.pushName || 'otro admin';
     if (comando === 'ayuda') return responder(AYUDA);
     if (comando === 'casos') return responder(textoCasos(casos.abiertos()));
 
+    const activo = chatsActivos.has(chatAdmin) ? casos.obtener(chatsActivos.get(chatAdmin)) : null;
     if (comando === null) {
-      const caso = chatActivo ? casos.obtener(chatActivo) : null;
-      if (!caso) return responder(`No hay un chat activo. Escribe */ayuda* para ver los comandos.`);
-      return enviarAlCliente(caso, mensaje, resto);
+      if (!activo) return responder(`No hay un chat activo. Escribe */ayuda* para ver los comandos.`);
+      return enviarAlCliente(activo, mensaje, resto);
     }
 
     if (comando === 'fin' && numero === null) {
-      const caso = chatActivo ? casos.obtener(chatActivo) : null;
+      const caso = activo;
       if (!caso) return responder('No hay un chat activo.');
       return terminarChat(caso);
     }
 
-    const conocidos = ['enviar', 'aprobar', 'rechazar', 'resuelto', 'chat', 'fin'];
+    const conocidos = ['enviar', 'aprobar', 'rechazar', 'resuelto', 'tomar', 'chat', 'fin'];
     if (!conocidos.includes(comando)) return responder(`No conozco /${comando}. Escribe */ayuda*.`);
     if (numero === null) return responder(`Falta el número de caso, por ejemplo: /${comando} 12`);
     const caso = casos.obtener(numero);
     if (!caso) return responder(`No encuentro el caso #${numero}. Escribe */casos* para ver los abiertos.`);
+    // Evita, por ejemplo, entregar dos veces si dos admins aprueban el mismo pedido.
+    if (!caso.abierto && comando !== 'enviar') return responder(`#${caso.id} ya está cerrado.`);
 
     switch (comando) {
       case 'enviar':
@@ -151,16 +184,18 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
         await enviarAlCliente(caso, mensaje, resto);
         return responder(`✓ Enviado a #${numero}.`);
       case 'aprobar':
-        return aprobar(caso);
       case 'rechazar':
-        return rechazar(caso, resto);
-      case 'resuelto':
-        return resolver(caso, resto);
+      case 'resuelto': {
+        const tipoAntes = caso.tipo;
+        await { aprobar: () => aprobar(caso), rechazar: () => rechazar(caso, resto), resuelto: () => resolver(caso, resto) }[comando]();
+        if (!caso.abierto || caso.tipo !== tipoAntes || comando === 'rechazar') {
+          await contarALosDemas(`✓ /${comando} #${caso.id} ${caso.nombre}`);
+        }
+        return undefined;
+      }
+      case 'tomar':
       case 'chat':
-        chatActivo = caso.id;
-        // Mientras habla con Anthony, el bot no le contesta al cliente.
-        estados.guardar(caso.jid, { paso: 'asesor' });
-        return responder(`💬 Chat activo con #${caso.id} ${caso.nombre}. Lo que escribas le llega. */fin* para terminar.`);
+        return tomar(caso);
       case 'fin':
         return terminarChat(caso);
       default:
@@ -170,21 +205,16 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
 
   return {
     manejar,
-    // Cuando un cliente pide asesor: si no hay otro chat activo, este queda activo.
-    abrirChat(caso) {
-      if (chatActivo === null || !casos.obtener(chatActivo)?.abierto) {
-        chatActivo = caso.id;
-        return true;
-      }
-      return false;
-    },
-    // El cliente salió del chat escribiendo "menu".
+    // El cliente salió del chat escribiendo "menu". Devuelve el chat del admin que lo atendía.
     clienteSalio(caso) {
-      casos.cerrar(caso.id);
-      if (chatActivo === caso.id) chatActivo = null;
+      const admin = caso.admin ?? null;
+      soltarChat(caso);
+      caso.admin = null;
+      if (caso.tipo === 'asesor') casos.cerrar(caso.id);
+      return admin;
     },
-    get chatActivo() {
-      return chatActivo;
+    chatActivoDe(admin) {
+      return chatsActivos.get(admin) ?? null;
     },
   };
 }
