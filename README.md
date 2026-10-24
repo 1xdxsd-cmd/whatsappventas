@@ -26,6 +26,23 @@ Si la página no responde o no está configurada, el bot sigue funcionando con e
 
 El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
+## Atender desde tu WhatsApp (admin)
+
+Desde el número de `NUMERO_ADMIN` le escribes al bot y él actúa. Cada pedido, reporte o chat tiene un número de caso (#12) que aparece en los avisos.
+
+| Comando | Qué hace |
+| --- | --- |
+| `#12 texto` | Envía ese texto al cliente del caso 12 (cuentas, respuestas a reportes, lo que sea). Si mandas foto o archivo con `#12` en el pie, también se le reenvía |
+| `/aprobar 12` | Confirma el pago por transferencia: crea la renta con una cuenta libre (o renueva), le manda los datos al cliente y pasa el pedido a Ventas |
+| `/rechazar 12 motivo` | Le avisa al cliente que no se confirmó el pago; puede mandar otro comprobante |
+| `/resuelto 12 texto` | Marca el reporte como resuelto en la página y le manda el texto al cliente |
+| `/chat 12` | Abre el chat con ese cliente: lo que escribas le llega y lo que él escriba te llega a ti |
+| `/fin` | Termina el chat activo; el cliente vuelve al bot |
+| `/casos` | Lista los casos abiertos |
+| `/ayuda` | Muestra los comandos |
+
+Cuando un cliente pide un asesor, su chat queda activo solo si no estás atendiendo a otro; si no, usa `/chat 12`. Mientras está con el asesor, el bot no le contesta y todo lo que escribe te llega con su número de caso. Los casos viven en memoria: si reinicias el bot, los anteriores ya no se pueden usar.
+
 ## Cómo correrlo
 
 Requisitos: Node.js 20 o superior y un número de WhatsApp dedicado al bot.

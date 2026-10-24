@@ -91,7 +91,7 @@ test('sin cuenta disponible, cobra y deja la renta como entrega pendiente', asyn
   const resultado = await crearCobrosConCredito({ pagina, ahora }).pagar({ cliente, servicio: netflixPerfil, resumen: 'x' });
   assert.equal(resultado.ok, true);
   assert.equal(resultado.cuenta, null);
-  assert.deepEqual(pagina.registro.find(([tipo]) => tipo === 'actualizarRenta').slice(1), ['r-nueva', { needsSetup: true, source: 'saldo' }]);
+  assert.deepEqual(pagina.registro.find(([tipo]) => tipo === 'actualizarRenta').slice(1), ['r-nueva', { needsSetup: true }]);
 });
 
 test('renovación: extiende desde el vencimiento actual si aún no vence', async () => {

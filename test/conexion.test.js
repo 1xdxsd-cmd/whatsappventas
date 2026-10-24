@@ -15,6 +15,7 @@ test('el número del bot se normaliza para pedir el código', () => {
 });
 
 test('lee el texto y detecta comprobantes', () => {
-  assert.deepEqual(leerMensaje({ message: { conversation: 'hola' } }), { texto: 'hola', tieneComprobante: false });
-  assert.deepEqual(leerMensaje({ message: { imageMessage: { caption: 'pago' } } }), { texto: 'pago', tieneComprobante: true });
+  assert.deepEqual(leerMensaje({ message: { conversation: 'hola' } }), { texto: 'hola', tieneComprobante: false, tieneArchivo: false });
+  assert.deepEqual(leerMensaje({ message: { imageMessage: { caption: 'pago' } } }), { texto: 'pago', tieneComprobante: true, tieneArchivo: true });
+  assert.equal(leerMensaje({ message: { audioMessage: {} } }).tieneArchivo, true);
 });

@@ -109,6 +109,15 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       return pedir('POST', '/api/admin/sales', venta);
     },
 
+    // Pasa el pedido a Ventas, como el botón "Completar" del panel.
+    completarPedido(id, { price, paymentMethod }) {
+      return pedir('POST', `/api/admin/orders/${encodeURIComponent(id)}/complete`, { price, paymentMethod });
+    },
+
+    actualizarCaida(id, cambios) {
+      return pedir('PUT', `/api/admin/fallen/${encodeURIComponent(id)}`, cambios);
+    },
+
     reportarCaida(reporte) {
       logger?.info({ plataforma: reporte.platform }, 'Reportando cuenta caída en la página');
       return pedir('POST', '/api/admin/fallen', reporte);

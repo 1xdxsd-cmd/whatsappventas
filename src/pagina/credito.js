@@ -51,13 +51,55 @@ export function crearCobrosConCredito({ pagina, logger, ahora = () => new Date()
     }
   }
 
+  // Crea la renta (con una cuenta libre si hay) o extiende la existente.
+  // Lanza error si la página falla.
+  async function entregar({ cliente, servicio, renta }) {
+    const precio = Number(servicio.price) || 0;
+    const duracion = Number(servicio.duration) || 30;
+    const hoy = fechaMexico(ahora());
+    try {
+      if (renta) {
+        // Desde el vencimiento actual si aún no vence, o desde hoy.
+        const vence = String(renta.endDate).slice(0, 10);
+        const fechaFin = sumarDias(vence > hoy ? vence : hoy, duracion);
+        await pagina.actualizarRenta(renta.id, { endDate: fechaFin, status: 'activa' });
+        return { cuenta: null, fechaFin, renovacion: true };
+      }
+      const cuenta = elegirCuenta(await pagina.cuentas(), servicio);
+      const fechaFin = sumarDias(hoy, duracion);
+      const nueva = await pagina.crearRenta({
+        clientId: cliente.id ?? null,
+        clientName: cliente.nombre,
+        email: cuenta?.email ?? '',
+        platform: servicio.platform,
+        type: servicio.type,
+        price: precio,
+        startDate: hoy,
+        endDate: fechaFin,
+        accountId: cuenta?.id ?? null,
+      });
+      // Sin cuenta disponible, queda en "entregas pendientes" del panel.
+      if (!cuenta) await pagina.actualizarRenta(nueva.id, { needsSetup: true }).catch(() => {});
+      return { cuenta, fechaFin, renovacion: false };
+    } finally {
+      pagina.olvidarCache();
+    }
+  }
+
+  /**
+   * Entrega un pedido ya pagado por transferencia (cuando Anthony lo aprueba).
+   * @param {{ cliente: { id?: string, nombre: string }, servicio: object, renta?: object }} pedido
+   */
+  function entregarPagado(pedido) {
+    return enOrden(() => entregar(pedido));
+  }
+
   /**
    * @param {{ cliente: { id: string, nombre: string }, servicio: object, resumen: string, renta?: object }} pedido
    */
   function pagar({ cliente, servicio, resumen, renta }) {
     return enOrden(async () => {
       const precio = Number(servicio.price) || 0;
-      const duracion = Number(servicio.duration) || 30;
 
       let saldo;
       try {
@@ -69,37 +111,12 @@ export function crearCobrosConCredito({ pagina, logger, ahora = () => new Date()
         return { ok: false, motivo: 'descuentoIncierto' };
       }
 
-      const hoy = fechaMexico(ahora());
-      let cuenta = null;
-      let fechaFin;
+      let entrega;
       try {
-        if (renta) {
-          // Desde el vencimiento actual si aún no vence, o desde hoy.
-          const vence = String(renta.endDate).slice(0, 10);
-          fechaFin = sumarDias(vence > hoy ? vence : hoy, duracion);
-          await pagina.actualizarRenta(renta.id, { endDate: fechaFin, status: 'activa' });
-        } else {
-          cuenta = elegirCuenta(await pagina.cuentas(), servicio);
-          fechaFin = sumarDias(hoy, duracion);
-          const nueva = await pagina.crearRenta({
-            clientId: cliente.id,
-            clientName: cliente.nombre,
-            email: cuenta?.email ?? '',
-            platform: servicio.platform,
-            type: servicio.type,
-            price: precio,
-            startDate: hoy,
-            endDate: fechaFin,
-            accountId: cuenta?.id ?? null,
-          });
-          // Sin cuenta disponible, queda en "entregas pendientes" del panel.
-          if (!cuenta) await pagina.actualizarRenta(nueva.id, { needsSetup: true, source: 'saldo' }).catch(() => {});
-        }
+        entrega = await entregar({ cliente, servicio, renta });
       } catch (error) {
         logger?.error({ err: error, cliente: cliente.id }, 'Falló la entrega después de cobrar; devolviendo crédito');
         return { ok: false, motivo: await devolver(cliente, precio, resumen) };
-      } finally {
-        pagina.olvidarCache();
       }
 
       let ventaRegistrada = true;
@@ -117,9 +134,9 @@ export function crearCobrosConCredito({ pagina, logger, ahora = () => new Date()
         logger?.warn({ err: error }, 'No se pudo registrar la venta');
       }
 
-      return { ok: true, saldo, cuenta, fechaFin, renovacion: Boolean(renta), ventaRegistrada };
+      return { ok: true, saldo, ...entrega, ventaRegistrada };
     });
   }
 
-  return { pagar };
+  return { pagar, entregarPagado };
 }

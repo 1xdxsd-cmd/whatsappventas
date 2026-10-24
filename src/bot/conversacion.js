@@ -189,7 +189,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
           acciones: [{ tipo: 'pagarConCredito', servicio, resumen, renta }],
         };
       }
-      if (texto === '2') return pedirPago(servicio, resumen, datosPago);
+      if (texto === '2') return pedirPago(servicio, resumen, datosPago, renta);
       return noEntendi(textoFormaDePago(servicio, cliente, moneda), estado);
     }
 
@@ -312,7 +312,7 @@ function elegirFormaDePago(servicio, resumen, renta, { cliente, moneda, datosPag
       estado: { paso: 'forma-pago', servicio, resumen, renta: renta ?? null },
     };
   }
-  const resultado = pedirPago(servicio, resumen, datosPago);
+  const resultado = pedirPago(servicio, resumen, datosPago, renta);
   if (saldo > 0) {
     resultado.respuestas.splice(1, 0, `Tu crédito (${formatearPrecio(saldo, moneda)}) no alcanza para este pedido, así que puedes pagar por transferencia.`);
   }
@@ -365,14 +365,14 @@ export function textoCobroConCredito(resultado, { resumen, moneda }) {
   };
 }
 
-function pedirPago(servicio, resumen, datosPago) {
+function pedirPago(servicio, resumen, datosPago, renta = null) {
   return {
     respuestas: [
       `Perfecto, tu pedido: *${resumen}*.`,
       `Haz el pago a:\n\n${datosPago}\n\nLuego envía aquí la *foto del comprobante*.`,
     ],
     estado: { paso: 'pago', resumen },
-    acciones: [{ tipo: 'crearPedido', servicio, resumen }],
+    acciones: [{ tipo: 'crearPedido', servicio, resumen, renta }],
     aviso: { texto: `Nuevo pedido: ${resumen}. Esperando comprobante.` },
   };
 }

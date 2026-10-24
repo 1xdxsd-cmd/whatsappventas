@@ -17,6 +17,13 @@ function esChatPrivado(jid) {
   return jid?.endsWith('@s.whatsapp.net') || jid?.endsWith('@lid');
 }
 
+// Número de teléfono de quien escribe. Con los ids "@lid" de WhatsApp, el
+// número real puede venir en remoteJidAlt.
+export function numeroDeChat(key) {
+  const jid = [key.remoteJidAlt, key.remoteJid].find((j) => j?.endsWith('@s.whatsapp.net')) ?? key.remoteJid;
+  return jid.split('@')[0];
+}
+
 export function leerMensaje(mensaje) {
   const contenido = mensaje.message ?? {};
   return {
@@ -27,6 +34,9 @@ export function leerMensaje(mensaje) {
       contenido.documentMessage?.caption ??
       '',
     tieneComprobante: Boolean(contenido.imageMessage || contenido.documentMessage),
+    tieneArchivo: Boolean(
+      contenido.imageMessage || contenido.documentMessage || contenido.videoMessage || contenido.audioMessage || contenido.stickerMessage,
+    ),
   };
 }
 
