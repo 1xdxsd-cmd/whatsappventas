@@ -16,6 +16,13 @@ function fechaHoraMexico(ahora) {
   return { fecha: mexico.toISOString().slice(0, 10), hora: mexico.getUTCHours() };
 }
 
+// Aviso a los admins de las cuentas compradas a proveedores: desde las 9 am.
+const HORA_COMPRAS = 9;
+export function enHorarioDeCompras(ahora = new Date()) {
+  const { hora } = fechaHoraMexico(ahora);
+  return hora >= HORA_COMPRAS && hora < HORA_FIN;
+}
+
 export function enHorarioDeAvisos(ahora = new Date()) {
   const { hora } = fechaHoraMexico(ahora);
   return hora >= HORA_INICIO && hora < HORA_FIN;
@@ -104,5 +111,33 @@ export function resumenParaAdmins({ clientes, rentas, enviados, ahora = new Date
   return {
     clave,
     texto: [`📅 *Cuentas por vencer* (${porVencer.length})`, '', ...lineas].join('\n'),
+  };
+}
+
+/**
+ * Aviso del día para los admins con las cuentas compradas a proveedores que
+ * vencen en DIAS_DE_AVISO días o menos (hasta el mismo día). Sale una vez al
+ * día (clave `compras:<fecha>`).
+ * @returns {{ clave: string, texto: string | null } | null} null si ya salió hoy.
+ */
+export function resumenDeCompras({ compras, enviados, ahora = new Date() }) {
+  const { fecha } = fechaHoraMexico(ahora);
+  const clave = `compras:${fecha}`;
+  if (enviados.has(clave)) return null;
+  const porVencer = compras
+    .filter((c) => c.endDate)
+    .map((c) => ({ compra: c, dias: diasParaVencer(c.endDate, ahora) }))
+    .filter(({ dias }) => dias >= 0 && dias <= DIAS_DE_AVISO)
+    .sort((a, b) => a.dias - b.dias);
+  if (porVencer.length === 0) return { clave, texto: null };
+  const lineas = porVencer.map(({ compra, dias }) => {
+    const cuando = dias === 0 ? 'vence *hoy*' : cuandoVence(dias, compra.endDate);
+    const proveedor = compra.provider ? `, proveedor ${compra.provider}` : '';
+    const costo = compra.cost ? `, costó $${compra.cost}` : '';
+    return `• ${nombrePlataforma(compra.platform)} ${compra.account || ''} ${cuando}${proveedor}${costo}`;
+  });
+  return {
+    clave,
+    texto: [`🛒 *Compras por vencer* (${porVencer.length})`, '', ...lineas, '', 'Renuévalas en la pestaña Compras de la página.'].join('\n'),
   };
 }

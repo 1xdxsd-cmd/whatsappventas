@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { enHorarioDeAvisos, recordatoriosPendientes, resumenParaAdmins } from './calculo.js';
+import { enHorarioDeAvisos, enHorarioDeCompras, recordatoriosPendientes, resumenDeCompras, resumenParaAdmins } from './calculo.js';
 
-const CADA = 10 * 60 * 1000; // revisa cada 10 minutos: los avisos salen poco después de las 12 pm
+const CADA = 10 * 60 * 1000; // revisa cada 10 minutos: los avisos salen poco después de las 9 am y las 12 pm
 const PAUSA_ENTRE_CLIENTES = 20_000; // mensajes que el bot inicia: más espaciados para cuidar el número
 const DIAS_GUARDADOS = 60;
 
@@ -27,11 +27,22 @@ async function guardarEnviados(archivo, enviados) {
 export function iniciarRecordatorios({ pagina, conexion, archivo, avisarAdmin, negocio, logger }) {
   let corriendo = false;
 
+  // Solo para los admins: las cuentas compradas a proveedores que vencen pronto, desde las 9 am.
+  async function revisarCompras(enviados) {
+    const resumen = resumenDeCompras({ compras: await pagina.compras(), enviados: new Set(Object.keys(enviados)) });
+    if (!resumen) return;
+    if (resumen.texto) await avisarAdmin(resumen.texto);
+    enviados[resumen.clave] = new Date().toISOString();
+    await guardarEnviados(archivo, enviados);
+  }
+
   async function revisar() {
-    if (corriendo || !enHorarioDeAvisos() || !conexion.conectado()) return;
+    if (corriendo || !enHorarioDeCompras() || !conexion.conectado()) return;
     corriendo = true;
     try {
       const enviados = await leerEnviados(archivo);
+      await revisarCompras(enviados).catch((error) => logger.error({ err: error }, 'No se pudo revisar las compras por vencer'));
+      if (!enHorarioDeAvisos()) return;
       const [clientes, rentas] = await Promise.all([pagina.clientes(), pagina.rentas()]);
       // Primero el resumen para los admins (a todos), una vez al día.
       const resumen = resumenParaAdmins({ clientes, rentas, enviados: new Set(Object.keys(enviados)) });

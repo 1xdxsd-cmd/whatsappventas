@@ -98,6 +98,11 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       return pedir('POST', `/api/admin/clients/${encodeURIComponent(clienteId)}/balance`, { amount: monto, note: nota });
     },
 
+    // Cuentas que se compraron a proveedores (pestaña Compras).
+    compras() {
+      return pedir('GET', '/api/admin/purchases');
+    },
+
     cuentas() {
       return pedir('GET', '/api/admin/accounts');
     },

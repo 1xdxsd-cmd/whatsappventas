@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diasParaVencer, enHorarioDeAvisos, recordatoriosPendientes, resumenParaAdmins } from '../src/recordatorios/calculo.js';
+import { diasParaVencer, enHorarioDeAvisos, enHorarioDeCompras, recordatoriosPendientes, resumenDeCompras, resumenParaAdmins } from '../src/recordatorios/calculo.js';
 
 // 24 de octubre de 2026, 12:05 pm en la Ciudad de México.
 const ahora = new Date('2026-10-24T12:05:00-06:00');
@@ -80,4 +80,24 @@ test('resumen diario para los admins con quién vence y cuándo', () => {
   assert.match(lineas[3], /Netflix.*a@x\.com.*vence en 2 días.*: Laura \(5512345678\)/);
   assert.equal(resumenParaAdmins({ clientes, rentas, enviados: new Set(['admins:2026-11-03']), ahora }), null);
   assert.deepEqual(resumenParaAdmins({ clientes, rentas: [rentas[2]], enviados: new Set(), ahora }), { clave: 'admins:2026-11-03', texto: null });
+});
+
+test('aviso a los admins de las compras que vencen en 3 días o menos, desde las 9 am', () => {
+  assert.equal(enHorarioDeCompras(new Date('2026-11-06T14:59:00Z')), false); // 8:59 am en México
+  assert.equal(enHorarioDeCompras(new Date('2026-11-06T15:00:00Z')), true); // 9 am
+  const ahora = new Date('2026-11-06T15:05:00Z');
+  const compras = [
+    { id: 'p1', platform: 'netflix', account: 'job835@xsend.org', provider: 'Ale Ventas', cost: 150, endDate: '2026-11-09' },
+    { id: 'p2', platform: 'netflix', account: 'toning@akugu.com', provider: 'Ale Ventas', cost: 150, endDate: '2026-11-22' },
+    { id: 'p3', platform: 'disney', account: 'hoy@x.com', endDate: '2026-11-06' },
+    { id: 'p4', platform: 'hbo', account: 'vieja@x.com', endDate: '2026-11-01' },
+  ];
+  const resumen = resumenDeCompras({ compras, enviados: new Set(), ahora });
+  assert.equal(resumen.clave, 'compras:2026-11-06');
+  const lineas = resumen.texto.split('\n');
+  assert.equal(lineas[0], '🛒 *Compras por vencer* (2)');
+  assert.match(lineas[2], /hoy@x\.com vence \*hoy\*/);
+  assert.match(lineas[3], /job835@xsend\.org vence en 3 días \(9 de noviembre\), proveedor Ale Ventas, costó \$150/);
+  assert.equal(resumenDeCompras({ compras, enviados: new Set(['compras:2026-11-06']), ahora }), null);
+  assert.equal(resumenDeCompras({ compras: [compras[1]], enviados: new Set(), ahora }).texto, null);
 });
