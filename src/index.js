@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
-import { opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
+import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
 import { procesarMensaje, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
@@ -122,7 +122,9 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
           : null;
         caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, renta: accion.renta, resumen: accion.motivo, caidaId: reporte?.id ?? null });
         // Para que el admin elija con qué cuenta reemplazarla.
-        caso.opciones = pagina ? opcionesDeReemplazo(await pagina.cuentas().catch(() => []), accion.renta) : [];
+        const cuentas = pagina ? await pagina.cuentas().catch(() => []) : [];
+        caso.necesarios = lugaresNecesarios(cuentas, accion.renta);
+        caso.opciones = opcionesDeReemplazo(cuentas, accion.renta);
       }
       if (accion.tipo === 'crearRecarga' && contexto.cliente) {
         caso = casos.abrir({ ...datosCliente, tipo: 'recarga', ...delPago(accion), monto: accion.monto, resumen: accion.resumen });

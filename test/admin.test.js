@@ -25,6 +25,7 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
   const conexion = {
     enviarTexto: async (jid, t) => enviados.push([jid, t]),
     reenviar: async (jid, m) => reenviados.push([jid, m]),
+    buscarJid: async (telefono) => `52${String(telefono).slice(-10)}@s.whatsapp.net`,
   };
   const pagina = {
     completarPedido: async (...a) => llamadas.push(['completarPedido', ...a]),
@@ -37,8 +38,17 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
     },
     olvidarCache: () => {},
     cuentas: async () => [
-      { id: 'acc-caida', platform: 'netflix', email: 'caida@x.com', password: 'x', totalProfiles: 5 },
-      { id: 'acc-libre', platform: 'netflix', email: 'libre@x.com', password: 'clave-libre' },
+      { id: 'acc-caida', platform: 'netflix', email: 'caida@x.com', password: 'x', totalProfiles: 5, capacity: 5, usedProfiles: 3 },
+      { id: 'acc-libre', platform: 'netflix', email: 'libre@x.com', password: 'clave-libre', capacity: 5, usedProfiles: 1 },
+      { id: 'acc-chica', platform: 'netflix', email: 'chica@x.com', password: 'c', capacity: 5, usedProfiles: 4 },
+    ],
+    caidas: async () => [
+      { id: 'fall-1', affectedClients: [{ clientId: 'client-1' }, { clientId: 'client-2', clientName: 'Pedro' }, { clientId: 'client-3', clientName: 'Rosa' }] },
+    ],
+    clientes: async () => [
+      { id: 'client-1', name: 'Laura', phone: '5512345678' },
+      { id: 'client-2', name: 'Pedro', phone: '5587654321' },
+      { id: 'client-3', name: 'Rosa', phone: null },
     ],
     crearCuenta: async (cuenta) => {
       llamadas.push(['crearCuenta', cuenta]);
@@ -232,9 +242,9 @@ test('un pago a la cuenta de un admin no se les cuenta a los demás', async () =
 });
 
 const reporte = {
-  jid: CLIENTE, nombre: 'Laura', tipo: 'reporte', plataforma: 'netflix', caidaId: 'fall-1', resumen: 'pide código',
+  jid: CLIENTE, telefono: '5215512345678', nombre: 'Laura', cliente: { id: 'client-1', nombre: 'Laura' }, tipo: 'reporte', plataforma: 'netflix', caidaId: 'fall-1', resumen: 'pide código',
   renta: { id: 'r1', platform: 'netflix', type: 'perfil', accountId: 'acc-caida', email: 'caida@x.com' },
-  opciones: [{ id: 'acc-libre', email: 'libre@x.com', libres: 2 }],
+  opciones: [{ id: 'acc-libre', email: 'libre@x.com', libres: 4 }, { id: 'acc-chica', email: 'chica@x.com', libres: 1 }],
 };
 
 test('/reemplazar N 1 resuelve la caída con la cuenta de la lista y le manda los datos al cliente', async () => {
@@ -244,7 +254,22 @@ test('/reemplazar N 1 resuelve la caída con la cuenta de la lista y le manda lo
   assert.deepEqual(p.llamadas.at(-1), ['actualizarCaida', 'fall-1', { status: 'resuelto', resolution: 'Reemplazada por libre@x.com (WhatsApp)', replacementAccount: 'acc-libre' }]);
   assert.match(p.alCliente()[0], /Reemplazamos tu cuenta de Netflix[\s\S]*Correo: libre@x\.com\nContraseña: clave-libre/);
   assert.equal(caso.abierto, false);
-  assert.match(p.alAdmin()[0], /reemplazada por libre@x\.com/);
+  // Los demás clientes de la cuenta caída también reciben los datos.
+  const aPedro = p.enviados.filter(([jid]) => jid === '525587654321@s.whatsapp.net').map(([, t]) => t);
+  assert.match(aPedro[0], /dejó de funcionar y ya la cambiamos[\s\S]*Correo: libre@x\.com/);
+  assert.match(p.alAdmin()[0], /reemplazada por libre@x\.com\. También les mandé los datos a: Pedro\. No pude avisarles a: Rosa/);
+});
+
+test('/reemplazar no usa una cuenta sin lugar para todas las rentas de la caída', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(reporte);
+  await p.admin.manejar(texto(`/reemplazar ${caso.id} 2`));
+  assert.match(p.alAdmin()[0], /chica@x\.com tiene 1 lugar libre y hay que pasar 3 rentas/);
+  assert.deepEqual(p.alCliente(), []);
+  assert.equal(caso.abierto, true);
+  await p.admin.manejar(texto(`/reemplazar ${caso.id} nueva@x.com Clave123 2`));
+  assert.match(p.alAdmin()[1], /de al menos 3/);
+  assert.equal(p.llamadas.some(([n]) => n === 'crearCuenta'), false);
 });
 
 test('/reemplazar N correo contraseña da de alta la cuenta nueva con los perfiles de la caída', async () => {

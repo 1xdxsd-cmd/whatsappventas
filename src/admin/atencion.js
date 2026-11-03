@@ -1,7 +1,8 @@
 import { formatearPrecio, nombrePlataforma } from '../catalogo/servicios.js';
 import { leerMensaje } from '../whatsapp/conexion.js';
 import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
-import { leerReemplazo } from './reemplazo.js';
+import { leerReemplazo, lugaresNecesarios } from './reemplazo.js';
+import { mismoTelefono } from '../pagina/datos.js';
 
 // Atiende los mensajes que los administradores le escriben al bot: comandos y
 // chat con clientes que pidieron un asesor. Puede haber varios administradores:
@@ -154,25 +155,40 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     if (!pedido) return responder(`Escribe */reemplazar ${caso.id} 1* (una cuenta de la lista) o */reemplazar ${caso.id} correo contraseña*.`);
 
     let cuenta;
+    let afectados = [];
     try {
+      pagina.olvidarCache();
       const cuentas = await pagina.cuentas();
+      // Con datos frescos: pudieron ocuparse lugares desde el aviso.
+      const necesarios = caso.renta ? lugaresNecesarios(cuentas, caso.renta) : 1;
       if ('opcion' in pedido) {
         const elegida = caso.opciones?.[pedido.opcion - 1];
         if (!elegida) return responder(`No hay opción ${pedido.opcion} en la lista de #${caso.id}.`);
         cuenta = cuentas.find((c) => c.id === elegida.id);
         if (!cuenta) return responder(`La cuenta ${elegida.email} ya no está en la página.`);
+        const libres = (cuenta.capacity ?? cuenta.totalProfiles ?? 1) - (cuenta.usedProfiles ?? 0);
+        if (libres < necesarios) {
+          return responder(`${cuenta.email} tiene ${libres} ${libres === 1 ? 'lugar libre' : 'lugares libres'} y hay que pasar ${necesarios} rentas. Elige otra o da de alta una nueva.`);
+        }
       } else {
         // Cuenta nueva con los mismos perfiles que la caída, salvo que digas otro número.
         const caida = cuentas.find((c) => c.id === caso.renta?.accountId);
+        const perfiles = pedido.perfiles ?? Math.max(caida?.totalProfiles ?? 1, necesarios);
+        if (caso.renta?.type !== 'cuenta' && perfiles < necesarios) {
+          return responder(`Hay que pasar ${necesarios} rentas y la cuenta nueva tendría ${perfiles} perfiles. Escribe al final un número de perfiles de al menos ${necesarios}.`);
+        }
         cuenta = await pagina.crearCuenta({
           platform: caso.plataforma,
           email: pedido.email,
           password: pedido.password,
-          totalProfiles: pedido.perfiles ?? caida?.totalProfiles ?? 1,
+          totalProfiles: perfiles,
           saleType: caso.renta?.type === 'cuenta' ? 'cuenta' : 'perfil',
           notes: `Alta por WhatsApp para reemplazar ${caso.renta?.email || 'una cuenta caída'}`,
         });
       }
+      // Quiénes estaban en la cuenta caída, para mandarles también los datos nuevos.
+      const caida = (await pagina.caidas().catch(() => [])).find((f) => f.id === caso.caidaId);
+      afectados = caida?.affectedClients ?? [];
       await pagina.actualizarCaida(caso.caidaId, {
         status: 'resuelto',
         resolution: `Reemplazada por ${cuenta.email} (WhatsApp)`,
@@ -185,15 +201,43 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     }
 
     const plataforma = nombrePlataforma(caso.plataforma);
-    await conexion.enviarTexto(
-      caso.jid,
-      [`✅ Reemplazamos tu cuenta de ${plataforma}. *Tus nuevos datos de acceso*`, `Correo: ${cuenta.email}`, `Contraseña: ${cuenta.password}`].join('\n'),
-    );
+    const datosNuevos = (inicio) => [inicio, '*Tus nuevos datos de acceso*', `Correo: ${cuenta.email}`, `Contraseña: ${cuenta.password}`].join('\n');
+    await conexion.enviarTexto(caso.jid, datosNuevos(`✅ Reemplazamos tu cuenta de ${plataforma}.`));
     casos.cerrar(caso.id);
     devolverAlBot(caso);
-    return responder(
-      `✓ #${caso.id} reemplazada por ${cuenta.email}. La página pasó a esa cuenta todas las rentas activas de la caída; a los demás clientes de esa cuenta avísales tú. Si es perfil, dile cuál usar con #${caso.id} texto.`,
-    );
+
+    const { avisados, sinAviso } = await avisarAfectados(afectados, caso, datosNuevos(`Hola 👋 La cuenta de ${plataforma} que usabas dejó de funcionar y ya la cambiamos.`));
+    const otros = avisados.length ? ` También les mandé los datos a: ${avisados.join(', ')}.` : '';
+    const faltan = sinAviso.length ? ` No pude avisarles a: ${sinAviso.join(', ')} (sin teléfono o sin WhatsApp); avísales tú.` : '';
+    return responder(`✓ #${caso.id} reemplazada por ${cuenta.email}.${otros}${faltan} Si es perfil, diles cuál usar.`);
+  }
+
+  // Los demás clientes que estaban en la cuenta caída (la página ya los pasó a la nueva).
+  async function avisarAfectados(afectados, caso, texto) {
+    const avisados = [];
+    const sinAviso = [];
+    const otros = afectados.filter((a) => a.clientId && a.clientId !== caso.cliente?.id);
+    if (otros.length === 0) return { avisados, sinAviso };
+    const clientes = await pagina.clientes().catch(() => []);
+    const vistos = new Set();
+    for (const afectado of otros) {
+      if (vistos.has(afectado.clientId)) continue;
+      vistos.add(afectado.clientId);
+      const cliente = clientes.find((c) => c.id === afectado.clientId);
+      const nombre = cliente?.name || afectado.clientName || 'cliente';
+      if (!cliente?.phone || mismoTelefono(cliente.phone, caso.telefono)) {
+        if (!cliente?.phone) sinAviso.push(nombre);
+        continue;
+      }
+      const jid = await conexion.buscarJid(cliente.phone).catch(() => null);
+      if (!jid) {
+        sinAviso.push(nombre);
+        continue;
+      }
+      await conexion.enviarTexto(jid, texto);
+      avisados.push(nombre);
+    }
+    return { avisados, sinAviso };
   }
 
   async function terminarChat(caso) {
