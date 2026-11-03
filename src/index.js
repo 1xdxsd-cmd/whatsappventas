@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
+import { opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
 import { procesarMensaje, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
@@ -29,7 +30,7 @@ if (!pagina) {
 
 const casos = crearRegistroDeCasos();
 
-async function cargarContexto(telefono) {
+async function cargarContexto(telefono, jid) {
   const contexto = {
     moneda: config.moneda,
     negocio: config.negocio,
@@ -39,9 +40,13 @@ async function cargarContexto(telefono) {
     cliente: null,
     rentas: [],
     paginaCaida: false,
+    reporteEnCurso: null,
   };
   // El cliente elige a quién pagar; solo esa persona recibe sus pagos.
   contexto.cobradores = config.cobradores.map(({ nombre, datos }) => ({ nombre, datos }));
+  // Un reporte a la vez por cliente.
+  const reporte = jid ? casos.abiertoDe(jid, 'reporte') : null;
+  if (reporte) contexto.reporteEnCurso = { plataforma: reporte.plataforma, email: reporte.renta?.email };
   if (!pagina) return contexto;
   try {
     const [servicios, metodos, cliente] = await Promise.all([
@@ -56,6 +61,12 @@ async function cargarContexto(telefono) {
       contexto.cliente = { id: cliente.id, nombre: cliente.name, usuario: cliente.username, saldo: Number(cliente.balance) || 0 };
       // Orden fijo para que el número que elige el cliente no cambie entre mensajes.
       contexto.rentas = (await pagina.rentasActivas(cliente.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      // También cuenta un reporte que se hizo en la página o antes de reiniciar el bot.
+      if (!contexto.reporteEnCurso) {
+        const caidas = await pagina.caidas().catch(() => []);
+        const abierta = caidas.find((f) => f.status !== 'resuelto' && f.affectedClients?.some((a) => a.clientId === cliente.id));
+        if (abierta) contexto.reporteEnCurso = { plataforma: abierta.platform, email: abierta.accountEmail };
+      }
     }
   } catch (error) {
     // Sin la página no se sabe si el cliente está registrado: la conversación
@@ -109,7 +120,9 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
               notes: `Reportada por WhatsApp: ${nombre} (${telefono})`,
             })
           : null;
-        caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, resumen: accion.motivo, caidaId: reporte?.id ?? null });
+        caso = casos.abrir({ ...datosCliente, tipo: 'reporte', plataforma: accion.renta.platform, renta: accion.renta, resumen: accion.motivo, caidaId: reporte?.id ?? null });
+        // Para que el admin elija con qué cuenta reemplazarla.
+        caso.opciones = pagina ? opcionesDeReemplazo(await pagina.cuentas().catch(() => []), accion.renta) : [];
       }
       if (accion.tipo === 'crearRecarga' && contexto.cliente) {
         caso = casos.abrir({ ...datosCliente, tipo: 'recarga', ...delPago(accion), monto: accion.monto, resumen: accion.resumen });
@@ -155,9 +168,9 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
 }
 
 const PISTAS = {
-  pedido: (id) => `Cuando confirmes el pago: /aprobar ${id} (o /rechazar ${id} motivo).`,
-  recarga: (id) => `Cuando confirmes el pago: /aprobar ${id} suma el crédito (o /rechazar ${id} motivo).`,
-  reporte: (id) => `Respóndele con #${id} texto y al terminar /resuelto ${id} texto.`,
+  pedido: ({ id }) => `Cuando confirmes el pago: /aprobar ${id} (o /rechazar ${id} motivo).`,
+  recarga: ({ id }) => `Cuando confirmes el pago: /aprobar ${id} suma el crédito (o /rechazar ${id} motivo).`,
+  reporte: (caso) => `\n\n${textoOpcionesDeReemplazo(caso)}`,
 };
 
 // Los mensajes de un mismo chat se procesan de uno en uno, para que dos
@@ -228,7 +241,7 @@ async function atender(mensaje) {
   const telefono = numeroDeChat(mensaje.key);
   const leido = leerMensaje(mensaje);
   const anterior = obtenerEstado(jid);
-  const contexto = await cargarContexto(telefono);
+  const contexto = await cargarContexto(telefono, jid);
   const nombre = contexto.cliente?.nombre || mensaje.pushName || telefono;
   const quien = `${nombre} (${telefono})`;
 
@@ -268,7 +281,7 @@ async function atender(mensaje) {
 
   if (resultado.aviso) {
     const caso = ejecutado.caso;
-    const pista = caso && PISTAS[caso.tipo] ? ` ${PISTAS[caso.tipo](caso.id)}` : '';
+    const pista = caso && PISTAS[caso.tipo] ? ` ${PISTAS[caso.tipo](caso)}` : '';
     const numero = caso ? `#${caso.id} ` : '';
     await avisarAdmin(`🔔 ${numero}${quien}: ${resultado.aviso.texto}${pista}`, resultado.aviso.reenviar ? mensaje : null, {
       soloNumeros: caso?.numerosDelPago ?? null,

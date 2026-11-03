@@ -18,7 +18,7 @@ Con `PAGINA_URL`, `PAGINA_USUARIO` y `PAGINA_CLAVE` en el `.env`, el bot entra a
 - Toma de **Servicios** el catálogo y los precios (solo los activos), y de **Métodos de pago** los datos de transferencia (solo si `DATOS_TRANSFERENCIA` está vacío; si lo llenas, manda el `.env`).
 - Reconoce al cliente por el teléfono guardado en su ficha (compara los últimos 10 dígitos) y lo saluda por su nombre.
 - Guarda cada pedido en **Pedidos**, con el teléfono y una nota, y la actualiza cuando llega el comprobante.
-- Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa.
+- Deja los reportes en **Cuentas caídas**: el cliente elige una de sus rentas activas y escribe qué pasa. Solo puede tener un reporte en curso: si intenta otro, el bot le dice que ya hay uno abierto. En el aviso a los admins salen las cuentas libres de la misma plataforma y tipo para reemplazarla (`/reemplazar 12 1`) o se puede dar de alta una nueva (`/reemplazar 12 correo contraseña`); la página pasa a esa cuenta todas las rentas activas de la caída y el bot le manda al cliente los datos nuevos.
 - Cobra con el **crédito** del cliente: si su saldo alcanza, al comprar o renovar puede elegir pagar con crédito o por transferencia. El bot descuenta el saldo, crea o extiende la renta (asignando una cuenta libre como el portal) y registra la venta. Si algo falla después de descontar, devuelve el crédito y te avisa.
 - Avisa a todos los admins de las **cuentas compradas a proveedores** (pestaña **Compras**) que vencen en 3 días o menos: un mensaje al día a partir de las 9 am (hora de la Ciudad de México), con la cuenta, el proveedor, el costo y cuándo vence. A los clientes no se les dice nada.
 - Ayuda a **recuperar el acceso a la página** (opción 6, o escribiendo *usuario*, *contraseña* o *clave*): si el cliente escribe desde el teléfono guardado en su ficha, el bot le dice su usuario y le deja poner una contraseña nueva (mínimo 6 caracteres). El teléfono es la prueba de identidad: desde otro número no le dice nada y te avisa. La contraseña actual nunca se envía (la página solo guarda su huella), y te llega un aviso de cada cambio. Con `PAGINA_ENLACE` el bot también le da la dirección de la página.
@@ -38,6 +38,8 @@ Desde un número de `NUMERO_ADMIN` le escribes al bot y él actúa. Puedes poner
 | `#12 texto` | Envía ese texto al cliente del caso 12 (cuentas, respuestas a reportes, lo que sea). Si mandas foto o archivo con `#12` en el pie, también se le reenvía |
 | `/aprobar 12` | Confirma el pago por transferencia: crea la renta con una cuenta libre (o renueva), le manda los datos al cliente y pasa el pedido a Ventas |
 | `/rechazar 12 motivo` | Le avisa al cliente que no se confirmó el pago; puede mandar otro comprobante |
+| `/reemplazar 12 1` | Reemplaza la cuenta caída del reporte con la opción 1 de la lista del aviso, la marca resuelta en la página y le manda los datos nuevos al cliente |
+| `/reemplazar 12 correo contraseña [perfiles]` | Igual, con una cuenta nueva que se da de alta en **Cuentas** (por defecto con los perfiles de la caída) |
 | `/resuelto 12 texto` | Marca el reporte como resuelto en la página y le manda el texto al cliente |
 | `/tomar 12` | Atiendes tú a ese cliente: lo que escribas le llega y lo que él escriba te llega solo a ti. A los demás admins se les avisa que ya está atendido (`/chat 12` hace lo mismo) |
 | `/fin` | Termina el chat activo; el cliente vuelve al bot |

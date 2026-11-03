@@ -1,6 +1,7 @@
 import { formatearPrecio, nombrePlataforma } from '../catalogo/servicios.js';
 import { leerMensaje } from '../whatsapp/conexion.js';
 import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
+import { leerReemplazo } from './reemplazo.js';
 
 // Atiende los mensajes que los administradores le escriben al bot: comandos y
 // chat con clientes que pidieron un asesor. Puede haber varios administradores:
@@ -134,11 +135,65 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
         .catch((error) => {
           nota = ` No se pudo marcar en la página (${error.message}).`;
         });
+      pagina.olvidarCache();
     }
     const plataforma = nombrePlataforma(caso.plataforma);
     await conexion.enviarTexto(caso.jid, `✅ Tu reporte de ${plataforma} quedó resuelto.${texto ? `\n\n${texto}` : ''}`);
     casos.cerrar(caso.id);
     return responder(`✓ #${caso.id} resuelto.${nota}`);
+  }
+
+  // Resuelve el reporte en la página con otra cuenta (de la lista del aviso o una
+  // nueva que se da de alta) y le manda al cliente los datos nuevos. La página
+  // pasa a esa cuenta todas las rentas activas de la cuenta caída.
+  async function reemplazar(caso, resto) {
+    if (caso.tipo !== 'reporte') return responder(`#${caso.id} no es un reporte.`);
+    if (!pagina) return responder(`El bot no está conectado a la página. Envíale los datos con #${caso.id} texto.`);
+    if (!caso.caidaId) return responder(`El reporte #${caso.id} no quedó guardado en la página. Envíale los datos con #${caso.id} texto y luego /resuelto ${caso.id}.`);
+    const pedido = leerReemplazo(resto);
+    if (!pedido) return responder(`Escribe */reemplazar ${caso.id} 1* (una cuenta de la lista) o */reemplazar ${caso.id} correo contraseña*.`);
+
+    let cuenta;
+    try {
+      const cuentas = await pagina.cuentas();
+      if ('opcion' in pedido) {
+        const elegida = caso.opciones?.[pedido.opcion - 1];
+        if (!elegida) return responder(`No hay opción ${pedido.opcion} en la lista de #${caso.id}.`);
+        cuenta = cuentas.find((c) => c.id === elegida.id);
+        if (!cuenta) return responder(`La cuenta ${elegida.email} ya no está en la página.`);
+      } else {
+        // Cuenta nueva con los mismos perfiles que la caída, salvo que digas otro número.
+        const caida = cuentas.find((c) => c.id === caso.renta?.accountId);
+        cuenta = await pagina.crearCuenta({
+          platform: caso.plataforma,
+          email: pedido.email,
+          password: pedido.password,
+          totalProfiles: pedido.perfiles ?? caida?.totalProfiles ?? 1,
+          saleType: caso.renta?.type === 'cuenta' ? 'cuenta' : 'perfil',
+          notes: `Alta por WhatsApp para reemplazar ${caso.renta?.email || 'una cuenta caída'}`,
+        });
+      }
+      await pagina.actualizarCaida(caso.caidaId, {
+        status: 'resuelto',
+        resolution: `Reemplazada por ${cuenta.email} (WhatsApp)`,
+        replacementAccount: cuenta.id,
+      });
+      pagina.olvidarCache();
+    } catch (error) {
+      logger.error({ err: error, caso: caso.id }, 'No se pudo reemplazar la cuenta caída');
+      return responder(`⚠️ No pude reemplazar la cuenta en la página para #${caso.id} (${error.message}). No le dije nada al cliente.`);
+    }
+
+    const plataforma = nombrePlataforma(caso.plataforma);
+    await conexion.enviarTexto(
+      caso.jid,
+      [`✅ Reemplazamos tu cuenta de ${plataforma}. *Tus nuevos datos de acceso*`, `Correo: ${cuenta.email}`, `Contraseña: ${cuenta.password}`].join('\n'),
+    );
+    casos.cerrar(caso.id);
+    devolverAlBot(caso);
+    return responder(
+      `✓ #${caso.id} reemplazada por ${cuenta.email}. La página pasó a esa cuenta todas las rentas activas de la caída; a los demás clientes de esa cuenta avísales tú. Si es perfil, dile cuál usar con #${caso.id} texto.`,
+    );
   }
 
   async function terminarChat(caso) {
@@ -170,7 +225,7 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
       return terminarChat(caso);
     }
 
-    const conocidos = ['enviar', 'aprobar', 'rechazar', 'resuelto', 'tomar', 'chat', 'fin'];
+    const conocidos = ['enviar', 'aprobar', 'rechazar', 'resuelto', 'reemplazar', 'tomar', 'chat', 'fin'];
     if (!conocidos.includes(comando)) return responder(`No conozco /${comando}. Escribe */ayuda*.`);
     if (numero === null) return responder(`Falta el número de caso, por ejemplo: /${comando} 12`);
     const caso = casos.obtener(numero);
@@ -185,9 +240,10 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
         return responder(`✓ Enviado a #${numero}.`);
       case 'aprobar':
       case 'rechazar':
-      case 'resuelto': {
+      case 'resuelto':
+      case 'reemplazar': {
         const tipoAntes = caso.tipo;
-        await { aprobar: () => aprobar(caso), rechazar: () => rechazar(caso, resto), resuelto: () => resolver(caso, resto) }[comando]();
+        await { aprobar: () => aprobar(caso), rechazar: () => rechazar(caso, resto), resuelto: () => resolver(caso, resto), reemplazar: () => reemplazar(caso, resto) }[comando]();
         // Los pagos a la cuenta de un admin solo le importan a ese admin.
         if (!caso.numerosDelPago?.length && (!caso.abierto || caso.tipo !== tipoAntes || comando === 'rechazar')) {
           await contarALosDemas(`✓ /${comando} #${caso.id} ${caso.nombre}`);

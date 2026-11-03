@@ -349,3 +349,21 @@ test('con una sola persona que cobra, no pregunta', () => {
   assert.equal(r.estado.paso, 'pago');
   assert.equal(r.acciones[0].cobrador, 0);
 });
+
+test('al reportar no reenvía el menú', () => {
+  const renta = { id: 'r1', platform: 'netflix', type: 'perfil', email: 'a@x.com', endDate: '2099-01-01' };
+  const r = procesarMensaje({ texto: 'pide código' }, { paso: 'reporte-motivo', rentaId: 'r1' }, { ...contextoBase, rentas: [renta] });
+  assert.equal(r.respuestas.length, 1);
+  assert.match(r.respuestas[0], /reportamos tu cuenta de Netflix/);
+  assert.equal(r.acciones[0].tipo, 'reportarCaida');
+});
+
+test('con un reporte en curso no deja hacer otro', () => {
+  const renta = { id: 'r1', platform: 'netflix', type: 'perfil', email: 'a@x.com', endDate: '2099-01-01' };
+  const contexto = { ...contextoBase, rentas: [renta], reporteEnCurso: { plataforma: 'netflix', email: 'a@x.com' } };
+  const r = procesarMensaje({ texto: '3' }, { paso: 'menu' }, contexto);
+  assert.match(r.respuestas[0], /Ya tienes un reporte en curso de Netflix a@x\.com/);
+  assert.equal(r.acciones, undefined);
+  const r2 = procesarMensaje({ texto: 'otra cosa' }, { paso: 'reporte-motivo', rentaId: 'r1' }, contexto);
+  assert.equal(r2.acciones, undefined);
+});

@@ -107,6 +107,15 @@ export function crearClientePagina({ url, usuario, clave, logger }) {
       return pedir('GET', '/api/admin/accounts');
     },
 
+    crearCuenta(cuenta) {
+      return pedir('POST', '/api/admin/accounts', cuenta);
+    },
+
+    // Reportes de cuentas caídas, con los clientes afectados.
+    caidas() {
+      return conCache('caidas', 30_000, () => pedir('GET', '/api/admin/fallen'));
+    },
+
     crearRenta(renta) {
       return pedir('POST', '/api/rentals', renta);
     },

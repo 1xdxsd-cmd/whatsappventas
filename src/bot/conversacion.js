@@ -141,7 +141,7 @@ function noEntendi(texto, estado) {
  */
 export function procesarMensaje(mensaje, estado, contexto) {
   const texto = normalizar(mensaje.texto);
-  const { moneda, servicios, datosPago, cobradores = [], cliente = null, rentas = [], paginaCaida = false, negocio = '', enlacePagina = '', ahora = new Date() } = contexto;
+  const { moneda, servicios, datosPago, cobradores = [], reporteEnCurso = null, cliente = null, rentas = [], paginaCaida = false, negocio = '', enlacePagina = '', ahora = new Date() } = contexto;
   const bienvenida = () => [textoBienvenida(cliente, negocio), ...recordatorioAlEscribir(rentas, ahora)];
   const grupos = agruparPorPlataforma(servicios);
   const pagos = { datosPago, cobradores };
@@ -172,7 +172,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
     case 'menu':
       if (texto === '1') return catalogo();
       if (texto === '2') return iniciarRenovacion(rentas, servicios, cliente, moneda, paginaCaida);
-      if (texto === '3') return iniciarReporte(rentas, cliente, paginaCaida);
+      if (texto === '3') return iniciarReporte(rentas, cliente, paginaCaida, reporteEnCurso);
       if (texto === '4') return menu([textoComoComprar(), textoMenu()]);
       if (texto === '5') return pasarAAsesor('Un cliente pidió hablar con un asesor.');
       if (texto === '6') return iniciarCuenta(cliente, paginaCaida, enlacePagina);
@@ -257,15 +257,14 @@ export function procesarMensaje(mensaje, estado, contexto) {
     case 'reporte-motivo': {
       const renta = rentas.find((r) => r.id === estado.rentaId);
       if (texto === '0' || !renta) return menu();
+      if (reporteEnCurso) return textoReporteEnCurso(reporteEnCurso);
       if (!texto) {
         return { respuestas: ['Escríbenos en un mensaje qué pasa con la cuenta, o *0* para cancelar.'], estado };
       }
       const nombre = nombrePlataforma(renta.platform);
       return {
-        respuestas: [
-          `Listo, reportamos tu cuenta de ${nombre}. Te avisamos por aquí en cuanto quede resuelta.`,
-          textoMenu(),
-        ],
+        // Sin el menú: el cliente solo espera la respuesta del reporte.
+        respuestas: [`Listo, reportamos tu cuenta de ${nombre}. Te avisamos por aquí en cuanto quede resuelta.`],
         estado: { paso: 'menu' },
         acciones: [{ tipo: 'reportarCaida', renta, motivo: mensaje.texto.trim() }],
         aviso: { texto: `Cuenta caída reportada: ${nombre} ${renta.email || ''}. Motivo: ${mensaje.texto.trim()}` },
@@ -401,8 +400,18 @@ export function textoCambioDeClave(ok, cliente) {
   };
 }
 
-function iniciarReporte(rentas, cliente, paginaCaida) {
+// Un reporte a la vez: mientras uno sigue abierto, no se crea otro.
+function textoReporteEnCurso(reporte) {
+  const cuenta = [nombrePlataforma(reporte.plataforma), reporte.email].filter(Boolean).join(' ');
+  return {
+    respuestas: [`Ya tienes un reporte en curso${cuenta ? ` de ${cuenta}` : ''}. Te avisamos por aquí en cuanto quede resuelto. Si necesitas algo más, escribe *asesor*.`],
+    estado: { paso: 'menu' },
+  };
+}
+
+function iniciarReporte(rentas, cliente, paginaCaida, reporteEnCurso = null) {
   if (paginaCaida) return sinAccesoALaPagina('reportar una cuenta caída');
+  if (reporteEnCurso) return textoReporteEnCurso(reporteEnCurso);
   if (rentas.length === 0) {
     const motivo = cliente
       ? `${cliente.nombre} quiere reportar una cuenta caída, pero no tiene rentas activas en la página.`

@@ -36,6 +36,14 @@ function preparar({ cuentas = [], fallar = {} } = {}) {
       return { balance: 250 };
     },
     olvidarCache: () => {},
+    cuentas: async () => [
+      { id: 'acc-caida', platform: 'netflix', email: 'caida@x.com', password: 'x', totalProfiles: 5 },
+      { id: 'acc-libre', platform: 'netflix', email: 'libre@x.com', password: 'clave-libre' },
+    ],
+    crearCuenta: async (cuenta) => {
+      llamadas.push(['crearCuenta', cuenta]);
+      return { id: 'acc-nueva', ...cuenta };
+    },
   };
   const cobros = {
     entregarPagado: async (pedido) => {
@@ -221,4 +229,44 @@ test('un pago a la cuenta de un admin no se les cuenta a los demás', async () =
   await p.admin.manejar(texto(`/aprobar ${caso.id}`), '525500000000');
   assert.equal(caso.abierto, false);
   assert.deepEqual(p.avisosATodos, []);
+});
+
+const reporte = {
+  jid: CLIENTE, nombre: 'Laura', tipo: 'reporte', plataforma: 'netflix', caidaId: 'fall-1', resumen: 'pide código',
+  renta: { id: 'r1', platform: 'netflix', type: 'perfil', accountId: 'acc-caida', email: 'caida@x.com' },
+  opciones: [{ id: 'acc-libre', email: 'libre@x.com', libres: 2 }],
+};
+
+test('/reemplazar N 1 resuelve la caída con la cuenta de la lista y le manda los datos al cliente', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(reporte);
+  await p.admin.manejar(texto(`/reemplazar ${caso.id} 1`));
+  assert.deepEqual(p.llamadas.at(-1), ['actualizarCaida', 'fall-1', { status: 'resuelto', resolution: 'Reemplazada por libre@x.com (WhatsApp)', replacementAccount: 'acc-libre' }]);
+  assert.match(p.alCliente()[0], /Reemplazamos tu cuenta de Netflix[\s\S]*Correo: libre@x\.com\nContraseña: clave-libre/);
+  assert.equal(caso.abierto, false);
+  assert.match(p.alAdmin()[0], /reemplazada por libre@x\.com/);
+});
+
+test('/reemplazar N correo contraseña da de alta la cuenta nueva con los perfiles de la caída', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(reporte);
+  await p.admin.manejar(texto(`/reemplazar ${caso.id} nueva@x.com Clave123`));
+  const [, cuenta] = p.llamadas.find(([n]) => n === 'crearCuenta');
+  assert.deepEqual(
+    { platform: cuenta.platform, email: cuenta.email, password: cuenta.password, totalProfiles: cuenta.totalProfiles, saleType: cuenta.saleType },
+    { platform: 'netflix', email: 'nueva@x.com', password: 'Clave123', totalProfiles: 5, saleType: 'perfil' },
+  );
+  assert.equal(p.llamadas.at(-1)[2].replacementAccount, 'acc-nueva');
+  assert.match(p.alCliente()[0], /Correo: nueva@x\.com\nContraseña: Clave123/);
+});
+
+test('/reemplazar con una opción que no existe no toca nada', async () => {
+  const p = preparar();
+  const caso = p.casos.abrir(reporte);
+  await p.admin.manejar(texto(`/reemplazar ${caso.id} 7`));
+  await p.admin.manejar(texto(`/reemplazar ${caso.id}`));
+  assert.deepEqual(p.alCliente(), []);
+  assert.match(p.alAdmin()[0], /No hay opción 7/);
+  assert.match(p.alAdmin()[1], /Escribe \*\/reemplazar/);
+  assert.equal(caso.abierto, true);
 });
