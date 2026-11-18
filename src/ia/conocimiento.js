@@ -176,7 +176,7 @@ export function revisarRespuesta({ texto, accion }) {
   if (losDa || (hablaDeDatos && !texto.includes('?'))) {
     return 'No tienes datos bancarios. Si el cliente ya dijo qué paga, cómo y a quién, responde con una frase corta y la etiqueta al final; si falta algo, pregúntalo.';
   }
-  if (/aqu[ií] (tienes|est[aá]n?)\b[^.!?]*:\s*[.!¿]/i.test(texto)) {
+  if (anunciaSinMostrar(texto)) {
     return 'Dijiste "aquí tienes" sin mostrar nada. Si es la lista de sus cuentas usa [[mis-cuentas]]; si no, da la información en el mensaje.';
   }
   return null;
@@ -186,4 +186,32 @@ export function revisarRespuesta({ texto, accion }) {
 export function preguntaFinal(texto) {
   const inicio = texto.lastIndexOf('¿');
   return inicio >= 0 && texto.indexOf('?', inicio) >= 0 ? texto.slice(inicio).trim() : '';
+}
+
+// "Aquí tienes tus cuentas: ." / "Te muestro tus cuentas para que veas cuál es: ."
+const anunciaSinMostrar = (texto) => /:\s*([.!¿]|$)/.test(texto) || /aqu[ií] (tienes|est[aá]n?)\b[^.!?]*:\s*[.!¿]/i.test(texto);
+
+// El modelo anunció la lista de cuentas sin la etiqueta: se manda la lista real.
+export function repararRespuesta(resultado) {
+  if (resultado.accion || !anunciaSinMostrar(resultado.texto) || !/cuentas?\b/i.test(resultado.texto)) return resultado;
+  return { ...resultado, accion: { nombre: 'mis-cuentas', datos: [] } };
+}
+
+// Si tras la corrección la IA sigue mal, se manda esto en vez de su texto.
+export function respaldoPara(correccion, cobradores = []) {
+  if (correccion.startsWith('No puedes confirmar')) {
+    return 'Tu pago lo revisa la persona a la que le transferiste; en cuanto lo apruebe te avisamos por aquí. 🙌';
+  }
+  if (correccion.startsWith('No tienes datos') || correccion.startsWith('Escribiste un texto')) {
+    const quien = cobradores.length >= 2 ? ` y a quién le transfieres (${cobradores.map((c) => c.nombre).join(' o ')})` : '';
+    return `Para mandarte los datos de pago dime qué quieres, si es compra o renovación${quien}. 🙂`;
+  }
+  return 'Perdón, no te entendí bien. 😅 ¿Me lo dices con otras palabras?';
+}
+
+// Preguntas obvias por sus propias cuentas: se contestan con la lista real sin
+// esperar a que el modelo ponga la etiqueta.
+export function pideSusCuentas(texto) {
+  const t = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\bmis (cuentas|rentas|servicios|suscripciones|perfiles)\b|que (cuentas|servicios|perfiles) tengo|cuales (son las que |cuentas )?tengo|cuando (se )?vence|que (se )?me vence/.test(t) || (/renov/.test(t) && /no se cual|nose cual|no recuerdo cual|cuales puedo/.test(t));
 }

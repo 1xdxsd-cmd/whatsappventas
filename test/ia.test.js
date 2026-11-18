@@ -4,7 +4,7 @@ import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
 import { ejecutarAccion, plataformaQueDijo } from '../src/ia/acciones.js';
-import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal, repararRespuesta, pideSusCuentas } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
 const contexto = {
@@ -224,14 +224,16 @@ test('detecta cuando la IA inventa datos de pago o dice que confirmó un pago', 
   assert.equal(preguntaFinal('Listo ✅'), '');
 });
 
-test('si la IA inventa, le pide otra respuesta; si insiste, pasa a un asesor', async () => {
+test('si la IA inventa, le pide otra respuesta; si insiste, manda un texto seguro', async () => {
   const fetch = fetchFalso(['Ya confirmé tu pago ✅', '¡Va! 🙌 Te mando los datos. [[renovar:1:transferencia]]']);
   const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch });
   const r = await asistente.conversar('chat', 'renuevo la 1 por transferencia', contexto);
   assert.deepEqual(r.accion, { nombre: 'renovar', datos: ['1', 'transferencia'] });
   assert.equal(fetch.pedidos[1].cuerpo.messages.at(-1).role, 'system');
   const otra = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch: fetchFalso(['Ya confirmé tu pago ✅', 'Ya quedó tu pago ✅']) });
-  assert.deepEqual((await otra.conversar('chat', 'ya pagué', contexto)).accion, { nombre: 'asesor', datos: [] });
+  const segura = await otra.conversar('chat', 'ya pagué', contexto);
+  assert.equal(segura.accion, null);
+  assert.match(segura.texto, /lo revisa la persona a la que le transferiste/);
 });
 
 test('la memoria guarda la etiqueta de la acción', async () => {
@@ -253,4 +255,15 @@ test('si la IA cambia de servicio, usa el que nombró el cliente', () => {
 test('mencionar los datos bancarios en una pregunta no se corrige', () => {
   const texto = '¿Quieres comprar un perfil de ViX ($50)? Si es así, dime a quién transfieres (*Anthony* o *Thalia*) para que te dé los datos bancarios. 📺💳';
   assert.equal(revisarRespuesta({ texto, accion: null }), null);
+});
+
+test('si anuncia la lista de cuentas sin mostrarla, se manda la lista real', () => {
+  const r = repararRespuesta({ texto: 'Te muestro tus cuentas con sus correos y fechas para que veas cuál es: . ¿Cuál te gustaría renovar? 🍿', accion: null });
+  assert.deepEqual(r.accion, { nombre: 'mis-cuentas', datos: [] });
+  assert.equal(repararRespuesta({ texto: '¿Quieres comprar o renovar? 📺', accion: null }).accion, null);
+});
+
+test('reconoce cuando el cliente pregunta por sus propias cuentas', () => {
+  for (const t of ['Cuales son mis cuentas?', '¿Qué cuentas tengo?', 'Quiero renovar una cuenta pero nose cual', '¿cuándo vence mi netflix?']) assert.equal(pideSusCuentas(t), true, t);
+  for (const t of ['Quiero comprar Vix', 'no sé cuál comprar', 'hola', 'quiero renovar netflix']) assert.equal(pideSusCuentas(t), false, t);
 });

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { instrucciones, interpretarRespuesta, revisarRespuesta } from './conocimiento.js';
+import { instrucciones, interpretarRespuesta, repararRespuesta, respaldoPara, revisarRespuesta } from './conocimiento.js';
 
 const MENSAJES_RECORDADOS = 12; // con 4096 de contexto caben pocos mensajes además de las instrucciones
 const LARGO_RECORDADO = 500; // los mensajes largos del bot (listas) se recortan en la memoria
@@ -74,15 +74,16 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
     ];
     const inicio = ahora();
     try {
-      let resultado = await preguntar(mensajes);
+      let resultado = repararRespuesta(await preguntar(mensajes));
       // Si inventó datos o dijo que confirmó un pago, se le pide otra respuesta
-      // una vez; si insiste, mejor lo atiende una persona.
+      // una vez; si insiste, se manda un texto seguro.
       const correccion = revisarRespuesta(resultado);
       if (correccion) {
         logger.warn({ texto: resultado.texto, correccion }, 'La IA respondió algo que no puede decir; le pido otra respuesta');
-        resultado = await preguntar([...mensajes, { role: 'assistant', content: resultado.crudo }, { role: 'system', content: correccion }]);
+        resultado = repararRespuesta(await preguntar([...mensajes, { role: 'assistant', content: resultado.crudo }, { role: 'system', content: correccion }]));
         if (revisarRespuesta(resultado)) {
-          resultado = { texto: 'Te paso con un asesor para revisarlo bien. 🙌', accion: { nombre: 'asesor', datos: [] }, crudo: '' };
+          // Nunca se manda el texto roto; tampoco se molesta a un asesor por esto.
+          resultado = { texto: respaldoPara(correccion, contexto.cobradores), accion: null, crudo: '' };
         }
       }
       // Se recuerda con su etiqueta, para que el modelo vea que así se hacen las acciones.

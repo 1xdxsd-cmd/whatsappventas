@@ -5,7 +5,7 @@ import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion, plataformaQueDijo } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
-import { esPregunta, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
+import { esPregunta, pideSusCuentas, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -363,6 +363,18 @@ async function atender(mensaje) {
       asistente.anotar(jid, 'user', dicho);
       resultado = directo;
       accionDeIA = anterior.accionPendiente.nombre;
+    }
+    // "¿Cuáles son mis cuentas?", "quiero renovar pero no sé cuál": la lista
+    // real va directo, sin depender de que el modelo use la etiqueta.
+    if (!resultado && !leido.tieneArchivo && contexto.cliente && contexto.rentas.length && pideSusCuentas(dicho)) {
+      const lista = textoMisCuentas(contexto.rentas, contexto.servicios, config.moneda);
+      await conexion.enviarTexto(jid, lista);
+      const pregunta = /renov/i.test(dicho) ? '¿Cuál quieres renovar? 🔄' : '¿Te ayudo a renovar alguna? 🔄';
+      await conexion.enviarTexto(jid, pregunta);
+      asistente.anotar(jid, 'user', dicho);
+      asistente.anotar(jid, 'assistant', `${lista}\n${pregunta}`);
+      guardarEstado(jid, { paso: 'menu' });
+      return;
     }
     const ia = resultado ? null : await asistente.conversar(jid, dicho, contexto);
     if (ia) {
