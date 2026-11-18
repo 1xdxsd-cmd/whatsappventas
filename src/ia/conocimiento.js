@@ -1,5 +1,7 @@
 import { RECARGA_MINIMA } from '../bot/conversacion.js';
-import { agruparPorPlataforma, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo } from '../catalogo/servicios.js';
+import { agruparPorPlataforma, fechaLegible, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo } from '../catalogo/servicios.js';
+
+export { fechaLegible };
 
 // Arma lo que la IA sabe en cada mensaje: solo datos reales (catálogo de la
 // página, datos del cliente y el archivo de conocimiento que escribe el
@@ -21,15 +23,6 @@ function precioDeRenovacion(renta, servicios) {
   const delCatalogo =
     servicios.find((s) => s.platform === renta.platform && s.type === renta.type) ?? servicios.find((s) => s.platform === renta.platform);
   return Number(renta.price) || delCatalogo?.price || 0;
-}
-
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-
-// 2026-12-23 -> 23 de diciembre de 2026
-export function fechaLegible(fecha) {
-  const [anio, mes, dia] = String(fecha).slice(0, 10).split('-').map(Number);
-  if (!anio || !mes || !dia) return String(fecha);
-  return `${dia} de ${MESES[mes - 1]} de ${anio}`;
 }
 
 const tipoLargo = (tipo) => (tipo === 'cuenta' ? 'cuenta completa' : 'perfil');
@@ -94,6 +87,7 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
       ? 'Ya están platicando: NO saludes ni repitas el nombre del cliente; sigue la conversación.'
       : 'Es el primer mensaje: saluda una sola vez.',
     'Usa solo los datos de abajo. Si no sabes algo, no lo inventes.',
+    'Escribe con buena ortografía, en español de México y de tú ("lo renuevo", "te lo cobro"). Nunca le digas al cliente las claves internas ([clave: ...]) ni le menciones etiquetas.',
     'Son las cuentas del propio cliente: puedes decirle el correo y la fecha de cada una. Las contraseñas no las tienes: si las pide, usa [[datos:N]] y el bot se las manda. Nunca inventes datos. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
     'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información y pregunta lo que falte. No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
     'Si pregunta qué cuentas tiene, sus fechas o sus correos, usa [[mis-cuentas]] y el bot le manda la lista exacta (no la cuentes tú).',

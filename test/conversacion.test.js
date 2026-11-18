@@ -107,8 +107,8 @@ const conRentas = {
 
 test('reportar una cuenta caída: lista sus cuentas activas', () => {
   const [lista] = conversar(conRentas, 'hola', '3').respuestas;
-  assert.match(lista, /\*1\.\* Netflix \(perfil, n1@ales98\.com\), vence 2026-11-20/);
-  assert.match(lista, /\*2\.\* Disney\+ \(cuenta completa, d1@ales98\.com\), vence 2026-11-05/);
+  assert.match(lista, /\*1\.\* Netflix \(perfil, n1@ales98\.com\), vence el 20 de noviembre de 2026/);
+  assert.match(lista, /\*2\.\* Disney\+ \(cuenta completa, d1@ales98\.com\), vence el 5 de noviembre de 2026/);
 });
 
 test('reportar una cuenta caída: guarda el reporte con el motivo', () => {
@@ -130,9 +130,9 @@ test('reportar sin cuentas activas pasa a un asesor', () => {
 test('renovar desde el recordatorio usa el precio que paga ese cliente', () => {
   const lista = conversar(conRentas, 'renovar');
   assert.equal(lista.estado.paso, 'renovar');
-  assert.match(lista.respuestas[0], /Netflix \(perfil, n1@ales98\.com\), vence 2026-11-20, renovar por \$75/);
+  assert.match(lista.respuestas[0], /Netflix \(perfil, n1@ales98\.com\), vence el 20 de noviembre de 2026, renovar por \$75/);
   // Sin precio en la renta, usa el del catálogo.
-  assert.match(lista.respuestas[0], /Disney\+ \(cuenta completa, d1@ales98\.com\), vence 2026-11-05, renovar por \$140/);
+  assert.match(lista.respuestas[0], /Disney\+ \(cuenta completa, d1@ales98\.com\), vence el 5 de noviembre de 2026, renovar por \$140/);
 
   const pedido = conversar(conRentas, 'renovar', '1');
   assert.equal(pedido.estado.paso, 'pago');
@@ -207,7 +207,7 @@ test('mensajes del cobro con crédito', () => {
     { resumen: 'Netflix', moneda: '$' },
   );
   assert.match(ok.respuestas[0], /te quedan \$100/i);
-  assert.match(ok.respuestas[1], /Correo: libre@x\.com\nContraseña: clave\nVence: 2026-11-23/);
+  assert.match(ok.respuestas[1], /Correo: libre@x\.com\n🔑 Contraseña: clave\n📅 Vence el 23 de noviembre de 2026/);
 
   const fallo = textoCobroConCredito({ ok: false, motivo: 'sinReembolso' }, { resumen: 'Netflix', moneda: '$' });
   assert.equal(fallo.estado.paso, 'asesor');

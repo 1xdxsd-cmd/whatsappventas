@@ -1,4 +1,4 @@
-import { formatearPrecio, nombrePlataforma } from '../catalogo/servicios.js';
+import { formatearPrecio, nombrePlataforma, textoDeAcceso } from '../catalogo/servicios.js';
 import { leerMensaje } from '../whatsapp/conexion.js';
 import { AYUDA, interpretarComando, textoCasos } from './comandos.js';
 import { leerReemplazo, lugaresNecesarios } from './reemplazo.js';
@@ -100,7 +100,7 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     if (entrega.cuenta) {
       await conexion.enviarTexto(
         caso.jid,
-        [`✅ Pago confirmado. *Tus datos de acceso*`, `Correo: ${entrega.cuenta.email}`, `Contraseña: ${entrega.cuenta.password}`, `Vence: ${entrega.fechaFin}`].join('\n'),
+        `✅ ¡Pago confirmado!\n\n${textoDeAcceso(entrega.cuenta, entrega.fechaFin)}`,
       );
       casos.cerrar(caso.id);
       devolverAlBot(caso);

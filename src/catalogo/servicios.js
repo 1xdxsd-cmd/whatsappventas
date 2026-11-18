@@ -54,3 +54,25 @@ export function formatearPrecio(monto, moneda) {
 export function formatearDuracion(dias) {
   return dias === 30 ? 'al mes' : `por ${dias} días`;
 }
+
+// 2026-12-23 -> 23 de diciembre de 2026
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+export function fechaLegible(fecha) {
+  const [anio, mes, dia] = String(fecha).slice(0, 10).split('-').map(Number);
+  if (!anio || !mes || !dia) return String(fecha);
+  return `${dia} de ${MESES[mes - 1]} de ${anio}`;
+}
+
+
+// Lo que recibe el cliente al entregarle una cuenta.
+export function textoDeAcceso(cuenta, fechaFin) {
+  return [
+    '*Tus datos de acceso* 🔑',
+    `📧 Correo: ${cuenta.email}`,
+    `🔑 Contraseña: ${cuenta.password}`,
+    ...(fechaFin ? [`📅 Vence el ${fechaLegible(fechaFin)} a las 8 pm`] : []),
+    '',
+    'Por seguridad, no compartas estos datos. 🔒',
+  ].join('\n');
+}

@@ -1,5 +1,5 @@
 import { lineaDeVencimiento, rentasPorVencer } from '../recordatorios/calculo.js';
-import { agruparPorPlataforma, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo } from '../catalogo/servicios.js';
+import { agruparPorPlataforma, fechaLegible, formatearDuracion, formatearPrecio, nombrePlataforma, nombreTipo, textoDeAcceso } from '../catalogo/servicios.js';
 
 // Lógica de la conversación como función pura: recibe el mensaje, el estado
 // del cliente y el contexto (catálogo, datos de pago, rentas del cliente), y
@@ -108,7 +108,7 @@ function textoRentas(pregunta, rentas, precio) {
   const lineas = rentas.map((r, i) => {
     const correo = r.email ? `, ${r.email}` : '';
     const extra = precio ? `, renovar por ${precio(r)}` : '';
-    return `*${i + 1}.* ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}${correo}), vence ${String(r.endDate).slice(0, 10)}${extra}`;
+    return `*${i + 1}.* ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}${correo}), vence el ${fechaLegible(r.endDate)}${extra}`;
   });
   return [pregunta, '', ...lineas, '', 'Responde con el número, o *0* para volver al menú.'].join('\n');
 }
@@ -499,7 +499,7 @@ export function textoCobroConCredito(resultado, { resumen, moneda }) {
       return {
         respuestas: [
           `✅ Listo, pagaste con tu crédito. Te quedan ${saldo}.`,
-          [`*Tus datos de acceso*`, `Correo: ${resultado.cuenta.email}`, `Contraseña: ${resultado.cuenta.password}`, `Vence: ${resultado.fechaFin}`].join('\n'),
+          textoDeAcceso(resultado.cuenta, resultado.fechaFin),
         ],
         aviso: { texto: `Pagó con crédito y se le entregó ${resultado.cuenta.email}: ${resumen}. Saldo: ${saldo}${venta}. Si es perfil, dile cuál usar.` },
       };

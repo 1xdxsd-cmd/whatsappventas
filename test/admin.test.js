@@ -85,7 +85,7 @@ test('/aprobar entrega la cuenta al cliente y pasa el pedido a Ventas', async ()
   const p = preparar({ cuentas: [{ email: 'libre@x.com', password: 'clave' }] });
   const caso = p.casos.abrir(pedido);
   await p.admin.manejar(texto(`/aprobar ${caso.id}`));
-  assert.match(p.alCliente()[0], /Pago confirmado[\s\S]*Correo: libre@x\.com\nContraseña: clave\nVence: 2026-11-23/);
+  assert.match(p.alCliente()[0], /Pago confirmado[\s\S]*Correo: libre@x\.com\n🔑 Contraseña: clave\n📅 Vence el 23 de noviembre de 2026/);
   assert.deepEqual(p.llamadas.find(([n]) => n === 'completarPedido'), ['completarPedido', 'ord-1', { price: 80, paymentMethod: 'transferencia' }]);
   assert.equal(p.casos.obtener(caso.id).abierto, false);
   assert.deepEqual(p.estadosGuardados.get(CLIENTE), { paso: 'menu' });

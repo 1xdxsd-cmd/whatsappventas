@@ -219,9 +219,19 @@ function pendientesDe(jid, contexto) {
   return pendientes;
 }
 
-// Pasos donde, con IA, el cliente platica con ella: el menú y sus listas. En los
-// demás (comprobante, motivo del reporte, contraseña nueva, monto de recarga,
-// asesor) el bot espera esa respuesta concreta.
+// El cliente ya no pagará ese pedido por transferencia: se cierra el caso, se
+// anota en la página y se le avisa a quien iba a recibir el pago.
+async function cancelarPendiente(estado, quien, motivo) {
+  const caso = estado.casoId ? casos.obtener(estado.casoId) : null;
+  if (!caso?.abierto) return false;
+  casos.cerrar(caso.id);
+  if (pagina && caso.pedidoId) {
+    await pagina.actualizarPedido(caso.pedidoId, { notes: `${caso.notas ?? ''} Cancelado por el cliente (${motivo}).`.trim() }).catch(() => {});
+  }
+  await avisarAdmin(`🚫 #${caso.id} ${quien} canceló: ${caso.resumen} (${motivo}).`, null, { soloNumeros: caso.numerosDelPago ?? null });
+  return true;
+}
+
 function cobradorNombrado(texto, cobradores = []) {
   const limpio = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const dicho = limpio(texto);
@@ -232,6 +242,9 @@ function cobradorNombrado(texto, cobradores = []) {
 const archivosSueltos = new Map(); // jid -> { mensaje, hora }: última foto mandada fuera de un pago
 const FOTO_VALE_POR = 30 * 60 * 1000;
 
+// Pasos donde, con IA, el cliente platica con ella: el menú y sus listas. En los
+// demás (comprobante, motivo del reporte, contraseña nueva, monto de recarga,
+// asesor) el bot espera esa respuesta concreta.
 const PASOS_DE_PLATICA = ['inicio', 'menu', 'catalogo', 'tipo', 'renovar', 'reporte', 'forma-pago', 'elegir-cobrador', 'cuenta'];
 
 const PISTAS = {
@@ -344,8 +357,44 @@ async function atender(mensaje) {
   // no responde, queda el menú de números de siempre.
   let resultado = null;
   let accionDeIA = null;
+  let accionHecha = null;
+  const escrito = leido.texto.trim();
   if (leido.tieneArchivo && anterior.paso === 'pago') archivosSueltos.delete(jid);
-  if (asistente && PASOS_DE_PLATICA.includes(anterior.paso) && (leido.texto.trim() || leido.tieneArchivo)) {
+  // Esperando comprobante: el pedido sigue en pie salvo que el cliente lo cancele,
+  // se pase a crédito o pida otra cosa.
+  const esperaPago = anterior.paso === 'pago' || anterior.paso === 'revision';
+
+  // Con IA, "menu" no muestra la lista de números: cancela lo que estaba
+  // esperando pago y pregunta en qué más ayudar.
+  if (asistente && !leido.tieneArchivo && /^(men[uú]|cancelar|cancela)$/i.test(escrito)) {
+    const cancelado = anterior.paso === 'pago' ? await cancelarPendiente(anterior, quien, 'lo canceló') : false;
+    guardarEstado(jid, { paso: 'menu' });
+    const texto = cancelado
+      ? 'Listo 👍 Cancelé ese pedido. ¿En qué más te ayudo? 🙂'
+      : '¿En qué te ayudo? 🙂 Puedo darte precios, venderte una cuenta, renovar, reportar una que falle o recargar tu crédito.';
+    await conexion.enviarTexto(jid, texto);
+    asistente.anotar(jid, 'user', escrito);
+    asistente.anotar(jid, 'assistant', texto);
+    return;
+  }
+
+  // "¿Y si mejor pago con mis créditos?" con un pedido que espera transferencia:
+  // se cancela ese pedido y se cobra del crédito.
+  if (asistente && anterior.paso === 'pago' && !anterior.recarga && anterior.accionIA && !leido.tieneArchivo && /cr[eé]dito|saldo/i.test(escrito)) {
+    const sinPago = anterior.accionIA.datos.filter((d) => !/^(transf|cr[eé]dit)/i.test(d) && !cobradorNombrado(d, contexto.cobradores));
+    const conCredito = { ...anterior.accionIA, datos: [...sinPago, 'credito'] };
+    const hecho = ejecutarAccion(conCredito, contexto, procesarMensaje);
+    if (!hecho.error) {
+      await cancelarPendiente(anterior, quien, 'prefirió pagar con crédito');
+      asistente.anotar(jid, 'user', escrito);
+      resultado = hecho;
+      accionDeIA = conCredito.nombre;
+      accionHecha = conCredito;
+    }
+  }
+
+  const conIA = PASOS_DE_PLATICA.includes(anterior.paso) ? escrito || leido.tieneArchivo : esperaPago && escrito && !leido.tieneArchivo;
+  if (!resultado && asistente && conIA) {
     conexion.escribiendo(jid);
     contexto.pendientes = pendientesDe(jid, contexto);
     // Una foto fuera de un pago (casi siempre un comprobante antes de pedir los
@@ -363,6 +412,7 @@ async function atender(mensaje) {
       asistente.anotar(jid, 'user', dicho);
       resultado = directo;
       accionDeIA = anterior.accionPendiente.nombre;
+      accionHecha = { ...anterior.accionPendiente, datos: [...anterior.accionPendiente.datos, elegido] };
     }
     // "¿Cuáles son mis cuentas?", "quiero renovar pero no sé cuál": la lista
     // real va directo, sin depender de que el modelo use la etiqueta.
@@ -373,7 +423,7 @@ async function atender(mensaje) {
       await conexion.enviarTexto(jid, pregunta);
       asistente.anotar(jid, 'user', dicho);
       asistente.anotar(jid, 'assistant', `${lista}\n${pregunta}`);
-      guardarEstado(jid, { paso: 'menu' });
+      guardarEstado(jid, esperaPago ? anterior : { paso: 'menu' });
       return;
     }
     const ia = resultado ? null : await asistente.conversar(jid, dicho, contexto);
@@ -387,14 +437,14 @@ async function atender(mensaje) {
         const pregunta = preguntaFinal(ia.texto);
         if (pregunta) await conexion.enviarTexto(jid, pregunta);
         asistente.anotar(jid, 'assistant', lista);
-        guardarEstado(jid, { paso: 'menu' });
+        guardarEstado(jid, esperaPago ? anterior : { paso: 'menu' });
         return;
       }
       if (ia.accion?.nombre === 'datos' && pideAcceso(dicho)) {
         if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
         await conexion.enviarTexto(jid, await datosDeAcceso(contexto, ia.accion.datos[0]));
         asistente.anotar(jid, 'assistant', 'Le envié los datos de acceso de esa cuenta.');
-        guardarEstado(jid, { paso: 'menu' });
+        guardarEstado(jid, esperaPago ? anterior : { paso: 'menu' });
         return;
       }
       // La acción se prueba antes de mandar lo que dijo la IA, para no decir
@@ -405,7 +455,7 @@ async function atender(mensaje) {
         ia.accion = corregida;
       }
       const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
-      let siguiente = { paso: 'menu' };
+      let siguiente = esperaPago ? anterior : { paso: 'menu' };
       if (!hecho?.error) {
         if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
       } else if (hecho.faltaCobrador) {
@@ -425,15 +475,22 @@ async function atender(mensaje) {
         }
         return;
       }
+      // Pidió otra cosa mientras debía una transferencia: ese pedido se cancela.
+      if (anterior.paso === 'pago' && ['comprar', 'renovar', 'recargar'].includes(ia.accion.nombre)) {
+        await cancelarPendiente(anterior, quien, 'pidió otra cosa');
+      }
       resultado = hecho;
       accionDeIA = ia.accion.nombre;
+      accionHecha = ia.accion;
     }
-  } else if (asistente) {
+  } else if (asistente && !resultado) {
     asistente.anotar(jid, 'user', leido.texto.trim() || '(envió un archivo)');
   }
 
   resultado ??= procesarMensaje(leido, anterior, contexto);
   const ejecutado = await ejecutarAcciones(resultado.acciones ?? [], { jid, estado: resultado.estado, contexto, telefono, nombre });
+  // Se recuerda qué pidió la IA, por si el cliente luego prefiere pagar con crédito.
+  if (accionHecha && ejecutado.estado.paso === 'pago') ejecutado.estado = { ...ejecutado.estado, accionIA: accionHecha };
   guardarEstado(jid, ejecutado.estado);
 
   for (const original of [...resultado.respuestas, ...ejecutado.respuestas]) {
