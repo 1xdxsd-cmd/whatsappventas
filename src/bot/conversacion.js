@@ -25,6 +25,18 @@ function normalizar(texto) {
     .trim();
 }
 
+// Mensajes que el menú de números ya entiende; el resto puede ir a la IA.
+export function entiendeElMenu(texto) {
+  const limpio = normalizar(texto);
+  return (
+    /^\d+$/.test(limpio) ||
+    PALABRAS_MENU.includes(limpio) ||
+    ['asesor', 'renovar'].includes(limpio) ||
+    PALABRAS_CUENTA.includes(limpio) ||
+    PALABRAS_RECARGA.includes(limpio)
+  );
+}
+
 function textoMenu() {
   return [
     '¿En qué te ayudo? Responde con el número:',
@@ -46,7 +58,7 @@ function textoBienvenida(cliente, negocio) {
 }
 
 // Al saludar o volver al menú, si tiene cuentas por vencer, se lo recuerda.
-function recordatorioAlEscribir(rentas, ahora) {
+export function recordatorioAlEscribir(rentas, ahora) {
   const porVencer = rentasPorVencer(rentas, ahora);
   if (porVencer.length === 0) return [];
   return [['⏰ *Recordatorio*', '', ...porVencer.map((r) => lineaDeVencimiento(r, ahora)), '', 'Para renovar, responde *renovar*.'].join('\n')];

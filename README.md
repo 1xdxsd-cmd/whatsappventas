@@ -29,6 +29,15 @@ Si la página no responde o no está configurada, el bot sigue funcionando con e
 
 El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
+## IA con Ollama (opcional)
+
+Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.com`) e `IA_MODELO` en el `.env`, cuando el cliente escribe texto libre en el menú ("hola", "¿cuánto cuesta Netflix?", "quiero Disney") le contesta la IA en vez del "No entendí". Los números y las palabras clave (`menu`, `renovar`, `asesor`, `saldo`...) siguen yendo directo al menú.
+
+- La IA sabe solo datos reales: los planes y precios de la página, el nombre, crédito y cuentas activas del cliente (sin correos ni contraseñas) y lo que escribas en `conocimiento.md` (horarios, garantía, reglas; copia `conocimiento.ejemplo.md`). Se lee en cada mensaje, así que puedes cambiarlo sin reiniciar.
+- Si el cliente quiere hacer algo (comprar, renovar, reportar, asesor, recargar...), la IA lo pasa a la opción del menú y desde ahí sigue el flujo de siempre. La IA nunca entrega cuentas, confirma pagos ni cambia contraseñas.
+- Recuerda los últimos 8 mensajes de cada chat (se olvida tras 2 horas sin escribir o cuando el cliente escribe `menu`).
+- Si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú de números y no vuelve a intentar con la IA durante un minuto.
+
 ## Atender desde tu WhatsApp (admin)
 
 Desde un número de `NUMERO_ADMIN` le escribes al bot y él actúa. Puedes poner varios administradores separados por comas: a todos les llegan los avisos y cualquiera puede usar los comandos. Cuando uno aprueba, rechaza o resuelve un caso, a los demás les llega un aviso, y un caso ya cerrado no se puede aprobar dos veces. Cada pedido, reporte o chat tiene un número de caso (#12) que aparece en los avisos.

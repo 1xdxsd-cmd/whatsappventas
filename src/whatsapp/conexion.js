@@ -200,6 +200,11 @@ export function crearConexion({ carpetaSesion, numeroBot = null, codigoVinculaci
     });
   }
 
+  // "escribiendo..." mientras se espera una respuesta lenta (por ejemplo, la IA).
+  function escribiendo(jid) {
+    return socket.sendPresenceUpdate('composing', jid).catch(() => {});
+  }
+
   function reenviar(jid, mensaje) {
     return encolar(() => socket.sendMessage(jid, { forward: mensaje }));
   }
@@ -217,5 +222,5 @@ export function crearConexion({ carpetaSesion, numeroBot = null, codigoVinculaci
     return resultado?.exists ? resultado.jid : null;
   }
 
-  return { iniciar, enviarTexto, reenviar, marcarLeido, buscarJid, conectado: () => abierta };
+  return { iniciar, enviarTexto, escribiendo, reenviar, marcarLeido, buscarJid, conectado: () => abierta };
 }

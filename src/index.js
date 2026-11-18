@@ -2,7 +2,8 @@ import pino from 'pino';
 import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
 import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
-import { procesarMensaje, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
+import { entiendeElMenu, procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
+import { crearAsistente } from './ia/asistente.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -29,6 +30,7 @@ if (!pagina) {
 }
 
 const casos = crearRegistroDeCasos();
+const asistente = config.ia ? crearAsistente({ ...config.ia, logger }) : null;
 
 async function cargarContexto(telefono, jid) {
   const contexto = {
@@ -273,7 +275,33 @@ async function atender(mensaje) {
     }
   }
 
-  const resultado = procesarMensaje(leido, anterior, contexto);
+  // Texto libre en el menú: responde la IA. Si pide una acción ([[opcion:N]]),
+  // se sigue como si el cliente hubiera escrito ese número; si no responde,
+  // queda el menú de números de siempre.
+  let entrada = leido;
+  let desde = anterior;
+  if (asistente && ['inicio', 'menu'].includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo) {
+    if (entiendeElMenu(leido.texto)) {
+      asistente.olvidar(jid);
+    } else {
+      conexion.escribiendo(jid);
+      const ia = await asistente.conversar(jid, leido.texto.trim(), contexto);
+      if (ia) {
+        if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+        if (ia.opcion === null) {
+          guardarEstado(jid, { paso: 'menu' });
+          if (anterior.paso === 'inicio') {
+            for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
+          }
+          return;
+        }
+        entrada = { ...leido, texto: String(ia.opcion) };
+        desde = { paso: 'menu' };
+      }
+    }
+  }
+
+  const resultado = procesarMensaje(entrada, desde, contexto);
   const ejecutado = await ejecutarAcciones(resultado.acciones ?? [], { jid, estado: resultado.estado, contexto, telefono, nombre });
   guardarEstado(jid, ejecutado.estado);
 

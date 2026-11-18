@@ -34,6 +34,16 @@ export const config = {
   codigoVinculacion: process.env.CODIGO_VINCULACION,
   // Dirección de la página que ven los clientes (puede ser distinta de PAGINA_URL).
   enlacePagina: process.env.PAGINA_ENLACE || '',
+  // IA opcional con Ollama (por ejemplo, https://ia.ventasthalia.com). Si no
+  // responde, el bot usa el menú de números.
+  ia: process.env.IA_URL
+    ? {
+        url: process.env.IA_URL,
+        modelo: process.env.IA_MODELO || 'novatech',
+        esperaMs: Number(process.env.IA_ESPERA_SEGUNDOS || 30) * 1000,
+        archivoConocimiento: process.env.IA_CONOCIMIENTO || 'conocimiento.md',
+      }
+    : null,
   archivoRecordatorios: process.env.ARCHIVO_RECORDATORIOS || 'datos/recordatorios.json',
   pagina: process.env.PAGINA_URL
     ? { url: process.env.PAGINA_URL, usuario: process.env.PAGINA_USUARIO, clave: process.env.PAGINA_CLAVE }
