@@ -5,7 +5,7 @@ import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion, plataformaQueDijo } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
-import { esPregunta, pideSusCuentas, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
+import { esPregunta, pideAcceso, pideSusCuentas, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -390,7 +390,7 @@ async function atender(mensaje) {
         guardarEstado(jid, { paso: 'menu' });
         return;
       }
-      if (ia.accion?.nombre === 'datos') {
+      if (ia.accion?.nombre === 'datos' && pideAcceso(dicho)) {
         if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
         await conexion.enviarTexto(jid, await datosDeAcceso(contexto, ia.accion.datos[0]));
         asistente.anotar(jid, 'assistant', 'Le envié los datos de acceso de esa cuenta.');

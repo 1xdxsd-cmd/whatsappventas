@@ -77,11 +77,11 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
       let resultado = repararRespuesta(await preguntar(mensajes));
       // Si inventó datos o dijo que confirmó un pago, se le pide otra respuesta
       // una vez; si insiste, se manda un texto seguro.
-      const correccion = revisarRespuesta(resultado);
+      const correccion = revisarRespuesta(resultado, texto);
       if (correccion) {
         logger.warn({ texto: resultado.texto, correccion }, 'La IA respondió algo que no puede decir; le pido otra respuesta');
         resultado = repararRespuesta(await preguntar([...mensajes, { role: 'assistant', content: resultado.crudo }, { role: 'system', content: correccion }]));
-        if (revisarRespuesta(resultado)) {
+        if (revisarRespuesta(resultado, texto)) {
           // Nunca se manda el texto roto; tampoco se molesta a un asesor por esto.
           resultado = { texto: respaldoPara(correccion, contexto.cobradores), accion: null, crudo: '' };
         }

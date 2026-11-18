@@ -4,7 +4,7 @@ import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
 import { ejecutarAccion, plataformaQueDijo } from '../src/ia/acciones.js';
-import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal, repararRespuesta, pideSusCuentas } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal, repararRespuesta, pideSusCuentas, pideAcceso } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
 const contexto = {
@@ -266,4 +266,19 @@ test('si anuncia la lista de cuentas sin mostrarla, se manda la lista real', () 
 test('reconoce cuando el cliente pregunta por sus propias cuentas', () => {
   for (const t of ['Cuales son mis cuentas?', '¿Qué cuentas tengo?', 'Quiero renovar una cuenta pero nose cual', '¿cuándo vence mi netflix?']) assert.equal(pideSusCuentas(t), true, t);
   for (const t of ['Quiero comprar Vix', 'no sé cuál comprar', 'hola', 'quiero renovar netflix']) assert.equal(pideSusCuentas(t), false, t);
+});
+
+test('nunca manda contraseñas en una compra: solo si el cliente las pidió', () => {
+  const accion = { nombre: 'datos', datos: ['3'] };
+  assert.match(revisarRespuesta({ texto: '¡Genial! ✅ Te envío los datos de acceso ahora mismo.', accion }, 'Uso mi crédito'), /NO pidió/);
+  assert.equal(revisarRespuesta({ texto: 'Va 🔑', accion }, 'pásame la contraseña de netflix'), null);
+  for (const t of ['pásame la contraseña', 'no me sé el correo', 'cómo entro a disney', 'mis datos de acceso']) assert.equal(pideAcceso(t), true, t);
+  for (const t of ['Uso mi crédito', 'Comprar un perfil', 'Anthony por favor']) assert.equal(pideAcceso(t), false, t);
+});
+
+test('si la IA manda datos de acceso en una compra, le pide la etiqueta correcta', async () => {
+  const fetch = fetchFalso(['Te envío los datos de acceso ahora mismo. [[datos:3]]', '¡Listo! ✅ [[comprar:netflix:perfil:credito]]']);
+  const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch });
+  const r = await asistente.conversar('chat', 'Uso mi crédito', contexto);
+  assert.deepEqual(r.accion, { nombre: 'comprar', datos: ['netflix', 'perfil', 'credito'] });
 });

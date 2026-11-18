@@ -108,13 +108,14 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     `- Recargar crédito: [[recargar:MONTO${cobrador}]] (de ${formatearPrecio(RECARGA_MINIMA, moneda)} en adelante, por transferencia).`,
     '- Cambiar la contraseña de la página: [[clave]] (el bot le pide la nueva).',
     '- Mostrarle sus cuentas con correo, tipo y vencimiento: [[mis-cuentas]].',
-    '- Mandarle el correo y la contraseña de una de sus cuentas: [[datos:N]].',
+    '- Mandarle el correo y la contraseña de una de sus cuentas que YA tiene: [[datos:N]] (solo si te pide su contraseña o sus accesos; nunca en una compra o renovación).',
     '- Pasarlo con una persona: [[asesor]] (pagó y no se le aplicó, un problema que no puedes resolver, o lo pide). Antes intenta entender qué pasa con una pregunta corta.',
     'Pagar con credito solo si su crédito alcanza y el cliente dijo claramente que quiere usar su crédito; si no, transferencia.',
     ...(variosCobradores ? [`Por transferencia se le puede pagar a: ${cobradores.map((c) => c.nombre).join(', ')}. Pregúntale a quién nombrando a todos (${cobradores.map((c) => c.nombre).join(' o ')}) antes de usar la etiqueta y pon ese NOMBRE.`] : []),
     'COMPRAR es una cuenta NUEVA (de PLANES); RENOVAR es extender una de las cuentas que ya tiene el cliente (Cuenta N). Si dice "comprar", "una nueva" u "otra", es comprar: no hables de renovar. Si solo nombra una plataforma ("Vix"), pregúntale si quiere comprar una nueva' + (rentas.length ? ' o renovar una que ya tiene' : '') + '.',
     'EJEMPLOS:',
     'cliente: "renuevo la 2 por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Va! 🙌 Te mando los datos para renovar tu cuenta. [[renovar:2:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
+    'cliente: "uso mi crédito" (para un perfil de ViX) → tú: "¡Va! ✅ Lo pago con tu crédito. [[comprar:vix:perfil:credito]]" (el bot cobra y entrega solo)',
     'cliente: "quiero un perfil de netflix, pago por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Perfecto! 🍿 Te mando los datos para tu perfil de Netflix. [[comprar:netflix:perfil:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
     '',
     'PLANES:',
@@ -162,7 +163,12 @@ export function interpretarRespuesta(respuesta) {
 // Lo que un modelo chico suele hacer mal pese a las instrucciones: inventar
 // datos de pago, decir que confirmó un pago o anunciar algo que no muestra.
 // Devuelve la corrección para pedirle otra respuesta, o null si está bien.
-export function revisarRespuesta({ texto, accion }) {
+export function revisarRespuesta({ texto, accion }, dicho = '') {
+  // Las contraseñas de sus cuentas solo cuando las pide: una compra o un pago
+  // nunca se contestan con los datos de otra cuenta.
+  if (accion?.nombre === 'datos' && !pideAcceso(dicho)) {
+    return 'El cliente NO pidió los datos de acceso de sus cuentas: no uses [[datos:N]]. Si quiere comprar o renovar, usa [[comprar:...]] o [[renovar:...]]; con crédito el bot cobra y entrega solo.';
+  }
   if (/\[[^\]]*\]/.test(texto)) {
     return 'Escribiste un texto entre corchetes. No pongas datos inventados ni espacios para rellenar: si toca mandar datos de pago, pon la etiqueta y el bot los manda.';
   }
@@ -206,6 +212,7 @@ export function respaldoPara(correccion, cobradores = []) {
     const quien = cobradores.length >= 2 ? ` y a quién le transfieres (${cobradores.map((c) => c.nombre).join(' o ')})` : '';
     return `Para mandarte los datos de pago dime qué quieres, si es compra o renovación${quien}. 🙂`;
   }
+  if (correccion.startsWith('El cliente NO pidió')) return '¿Me confirmas qué quieres comprar o renovar y cómo lo pagas? 🙂';
   return 'Perdón, no te entendí bien. 😅 ¿Me lo dices con otras palabras?';
 }
 
@@ -214,4 +221,10 @@ export function respaldoPara(correccion, cobradores = []) {
 export function pideSusCuentas(texto) {
   const t = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   return /\bmis (cuentas|rentas|servicios|suscripciones|perfiles)\b|que (cuentas|servicios|perfiles) tengo|cuales (son las que |cuentas )?tengo|cuando (se )?vence|que (se )?me vence/.test(t) || (/renov/.test(t) && /no se cual|nose cual|no recuerdo cual|cuales puedo/.test(t));
+}
+
+// "pásame la contraseña", "no me sé el correo de mi netflix", "datos de acceso"...
+export function pideAcceso(texto) {
+  const t = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /contrasen|password|clave|correo|acceso|datos de (mi|la|mis|las) (cuenta|perfil)|como (entro|inicio)|iniciar sesion/.test(t);
 }
