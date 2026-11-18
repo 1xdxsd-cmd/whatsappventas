@@ -135,6 +135,30 @@ test('con varias personas que cobran, usa la que dijo el cliente o avisa que fal
   assert.match(ejecutarAccion({ nombre: 'comprar', datos: ['netflix', 'cuenta', 'transferencia'] }, ctx, procesarMensaje).error, /a quién se le paga/);
 });
 
+test('entiende la etiqueta aunque la IA cambie el orden o se salte la forma de pago', () => {
+  const vix = [{ id: 'v1', name: 'ViX', platform: 'vix', type: 'perfil', price: 50, duration: 30 }, { id: 'v2', name: 'ViX', platform: 'vix', type: 'cuenta', price: 120, duration: 30 }];
+  const ctx = { ...contextoAccion, servicios: [...SERVICIOS_BASE, ...vix], cobradores: [{ nombre: 'Anthony', datos: 'BBVA A' }, { nombre: 'Thalia', datos: 'Banorte T' }] };
+  for (const datos of [['vix', 'perfil', 'Anthony'], ['ViX', 'perfil', 'Anthony', 'transferencia'], ['vix', 'perfil', 'transferencia', 'anthony']]) {
+    const r = ejecutarAccion({ nombre: 'comprar', datos }, ctx, procesarMensaje);
+    assert.equal(r.error, undefined, datos.join(':'));
+    assert.equal(r.acciones[0].servicio.platform, 'vix');
+    assert.equal(r.acciones[0].cobrador, 0);
+  }
+  const falta = ejecutarAccion({ nombre: 'renovar', datos: ['1', 'transferencia'] }, ctx, procesarMensaje);
+  assert.equal(falta.faltaCobrador, true);
+  assert.equal(ejecutarAccion({ nombre: 'renovar', datos: ['1', 'Thalia'] }, ctx, procesarMensaje).acciones[0].cobrador, 1);
+});
+
+test('una pregunta con emojis al final no hace la acción', () => {
+  assert.equal(interpretarRespuesta('¿Prefieres que los datos vayan a Anthony o a Thalia? 💳 [[renovar:4:transferencia]]').accion, null);
+});
+
+test('las instrucciones separan comprar de renovar', () => {
+  const texto = instrucciones({ ...contexto, cobradores: [{ nombre: 'Anthony' }, { nombre: 'Thalia' }] });
+  assert.match(texto, /COMPRAR es una cuenta NUEVA/);
+  assert.match(texto, /\[\[comprar:netflix:perfil:transferencia:Anthony\]\]/);
+});
+
 test('datos que no existen dan error en vez de mostrar una lista', () => {
   assert.match(ejecutarAccion({ nombre: 'comprar', datos: ['tiktok', 'perfil'] }, contextoAccion, procesarMensaje).error, /plataforma/);
   assert.match(ejecutarAccion({ nombre: 'renovar', datos: ['9'] }, contextoAccion, procesarMensaje).error, /cuenta/);

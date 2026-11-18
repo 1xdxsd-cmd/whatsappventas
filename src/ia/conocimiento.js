@@ -112,7 +112,10 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     '- Pasarlo con una persona: [[asesor]] (pagó y no se le aplicó, un problema que no puedes resolver, o lo pide). Antes intenta entender qué pasa con una pregunta corta.',
     'Pagar con credito solo si su crédito alcanza y el cliente dijo claramente que quiere usar su crédito; si no, transferencia.',
     ...(variosCobradores ? [`Por transferencia se le puede pagar a: ${cobradores.map((c) => c.nombre).join(', ')}. Pregúntale a quién nombrando a todos (${cobradores.map((c) => c.nombre).join(' o ')}) antes de usar la etiqueta y pon ese NOMBRE.`] : []),
-    'EJEMPLO: cliente: "renuevo la 2 por transferencia" → tú: "¡Va! 🙌 Te mando los datos para renovar tu Netflix. [[renovar:2:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
+    'COMPRAR es una cuenta NUEVA (de PLANES); RENOVAR es extender una de las cuentas que ya tiene el cliente (Cuenta N). Si dice "comprar", "una nueva" u "otra", es comprar: no hables de renovar. Si solo nombra una plataforma ("Vix"), pregúntale si quiere comprar una nueva' + (rentas.length ? ' o renovar una que ya tiene' : '') + '.',
+    'EJEMPLOS:',
+    'cliente: "renuevo la 2 por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Va! 🙌 Te mando los datos para renovar tu cuenta. [[renovar:2:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
+    'cliente: "quiero un perfil de netflix, pago por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Perfecto! 🍿 Te mando los datos para tu perfil de Netflix. [[comprar:netflix:perfil:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
     '',
     'PLANES:',
     textoPlanes(servicios, moneda),
@@ -135,6 +138,9 @@ export function aFormatoWhatsApp(texto) {
     .replace(/\n{3,}/g, '\n\n');
 }
 
+// Termina en pregunta aunque lleve emojis después ("¿Anthony o Thalia? 💳").
+export const esPregunta = (texto) => /\?[^\p{L}\p{N}]*$/u.test(texto);
+
 const ACCIONES = ['comprar', 'renovar', 'reportar', 'recargar', 'clave', 'asesor', 'mis-cuentas', 'datos'];
 
 /**
@@ -148,7 +154,7 @@ export function interpretarRespuesta(respuesta) {
   if (!etiqueta) return { texto, accion: null };
   const nombre = etiqueta[1].toLowerCase();
   // Si termina preguntando, solo está ofreciendo: espera a que el cliente diga que sí.
-  if (!ACCIONES.includes(nombre) || /\?\s*$/.test(texto)) return { texto, accion: null };
+  if (!ACCIONES.includes(nombre) || esPregunta(texto)) return { texto, accion: null };
   const datos = etiqueta[2] ? etiqueta[2].slice(1).split(':').map((d) => d.trim()) : [];
   return { texto, accion: { nombre, datos } };
 }

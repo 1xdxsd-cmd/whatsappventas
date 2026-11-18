@@ -5,7 +5,7 @@ import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
-import { preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
+import { esPregunta, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -222,6 +222,13 @@ function pendientesDe(jid, contexto) {
 // Pasos donde, con IA, el cliente platica con ella: el menú y sus listas. En los
 // demás (comprobante, motivo del reporte, contraseña nueva, monto de recarga,
 // asesor) el bot espera esa respuesta concreta.
+function cobradorNombrado(texto, cobradores = []) {
+  const limpio = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const dicho = limpio(texto);
+  const nombrados = cobradores.filter((c) => new RegExp(`\\b${limpio(c.nombre).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(dicho));
+  return nombrados.length === 1 ? nombrados[0].nombre : null;
+}
+
 const archivosSueltos = new Map(); // jid -> { mensaje, hora }: última foto mandada fuera de un pago
 const FOTO_VALE_POR = 30 * 60 * 1000;
 
@@ -348,7 +355,16 @@ async function atender(mensaje) {
     const dicho = leido.tieneArchivo
       ? `(El cliente mandó una foto o archivo${leido.texto.trim() ? ` con el texto: "${leido.texto.trim()}"` : ''}. No la puedes ver.)`
       : leido.texto.trim();
-    const ia = await asistente.conversar(jid, dicho, contexto);
+    // La IA ya tenía la compra lista y solo faltaba a quién pagar: si el cliente
+    // lo dice ("Anthony por favor"), se hace sin volver a preguntarle a la IA.
+    const elegido = anterior.accionPendiente && !leido.tieneArchivo ? cobradorNombrado(leido.texto, contexto.cobradores) : null;
+    const directo = elegido ? ejecutarAccion({ ...anterior.accionPendiente, datos: [...anterior.accionPendiente.datos, elegido] }, contexto, procesarMensaje) : null;
+    if (directo && !directo.error) {
+      asistente.anotar(jid, 'user', dicho);
+      resultado = directo;
+      accionDeIA = anterior.accionPendiente.nombre;
+    }
+    const ia = resultado ? null : await asistente.conversar(jid, dicho, contexto);
     if (ia) {
       // Mostrar cuentas o pasar datos de acceso no son flujos del menú: se
       // contestan aquí, con los datos reales de la página.
@@ -362,21 +378,31 @@ async function atender(mensaje) {
         guardarEstado(jid, { paso: 'menu' });
         return;
       }
-      if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
       if (ia.accion?.nombre === 'datos') {
+        if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
         await conexion.enviarTexto(jid, await datosDeAcceso(contexto, ia.accion.datos[0]));
         asistente.anotar(jid, 'assistant', 'Le envié los datos de acceso de esa cuenta.');
         guardarEstado(jid, { paso: 'menu' });
         return;
       }
+      // La acción se prueba antes de mandar lo que dijo la IA, para no decir
+      // "¡Listo!" y luego "no pude".
       const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
-      if (hecho?.error) {
+      let siguiente = { paso: 'menu' };
+      if (!hecho?.error) {
+        if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+      } else if (hecho.faltaCobrador) {
+        const pregunta = `¿A quién le haces la transferencia: ${contexto.cobradores.map((c) => `*${c.nombre}*`).join(' o ')}? 🙌`;
+        await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : pregunta);
+        asistente.anotar(jid, 'system', 'Falta a quién le paga; el cliente lo va a decir.');
+        siguiente = { paso: 'menu', accionPendiente: ia.accion };
+      } else {
         logger.warn({ accion: ia.accion, error: hecho.error }, 'La IA pidió una acción que no se pudo hacer');
         asistente.anotar(jid, 'system', `No se pudo hacer la acción: ${hecho.error}. Pregúntale al cliente lo que falta.`);
-        await conexion.enviarTexto(jid, 'Perdón, no pude completarlo. ¿Me confirmas los datos?');
+        await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : 'Perdón, no pude completarlo. 😕 ¿Me confirmas qué quieres y cómo pagas?');
       }
       if (!hecho || hecho.error) {
-        guardarEstado(jid, { paso: 'menu' });
+        guardarEstado(jid, siguiente);
         if (anterior.paso === 'inicio') {
           for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
         }
