@@ -1,6 +1,13 @@
 import 'dotenv/config';
 import { normalizarNumero, normalizarNumeroBot } from './whatsapp/conexion.js';
 
+// Si la dirección viene sin http:// o https://, se le pone el que corresponde.
+export function conEsquema(url, esquema) {
+  const limpia = String(url ?? '').trim();
+  if (!limpia) return '';
+  return /^https?:\/\//i.test(limpia) ? limpia : `${esquema}://${limpia}`;
+}
+
 const listaDeNumeros = (texto) => String(texto ?? '').split(',').map(normalizarNumero).filter(Boolean);
 const conSaltos = (texto) => texto.replace(/\\n/g, '\n');
 
@@ -38,7 +45,7 @@ export const config = {
   // responde, el bot usa el menú de números.
   ia: process.env.IA_URL
     ? {
-        url: process.env.IA_URL,
+        url: conEsquema(process.env.IA_URL, 'https'),
         modelo: process.env.IA_MODELO || 'novatech',
         esperaMs: Number(process.env.IA_ESPERA_SEGUNDOS || 30) * 1000,
         archivoConocimiento: process.env.IA_CONOCIMIENTO || 'conocimiento.md',
@@ -46,6 +53,6 @@ export const config = {
     : null,
   archivoRecordatorios: process.env.ARCHIVO_RECORDATORIOS || 'datos/recordatorios.json',
   pagina: process.env.PAGINA_URL
-    ? { url: process.env.PAGINA_URL, usuario: process.env.PAGINA_USUARIO, clave: process.env.PAGINA_CLAVE }
+    ? { url: conEsquema(process.env.PAGINA_URL, 'http'), usuario: process.env.PAGINA_USUARIO, clave: process.env.PAGINA_CLAVE }
     : null,
 };

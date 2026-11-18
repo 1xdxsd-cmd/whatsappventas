@@ -68,3 +68,11 @@ test('si la IA falla, devuelve null y se pausa un minuto', async () => {
   reloj = 61_000;
   assert.deepEqual(await asistente.conversar('chat', 'hola', contexto), { texto: 'Hola', opcion: null });
 });
+
+test('a las direcciones sin esquema se les pone http:// o https://', async () => {
+  const { conEsquema } = await import('../src/config.js');
+  assert.equal(conEsquema('ia.ventasthalia.com', 'https'), 'https://ia.ventasthalia.com');
+  assert.equal(conEsquema('http://10.0.0.5:11434', 'https'), 'http://10.0.0.5:11434');
+  assert.equal(conEsquema(' 45.1.2.3:8081 ', 'http'), 'http://45.1.2.3:8081');
+  assert.equal(conEsquema('', 'http'), '');
+});
