@@ -109,6 +109,9 @@ export function interpretarRespuesta(respuesta) {
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .trim(),
   );
-  const opcion = porNombre ?? porNumero;
-  return { texto, opcion, elegir: opcion === null && elegir ? Number(elegir) : null, accion: porNombre ? accion : null };
+  // Si termina preguntando ("¿Te gustaría ver los planes?"), solo está
+  // ofreciendo: la acción espera a que el cliente diga que sí.
+  const pregunta = /\?\s*$/.test(texto);
+  const opcion = pregunta ? null : porNombre ?? porNumero;
+  return { texto, opcion, elegir: opcion === null && elegir && !pregunta ? Number(elegir) : null, accion: opcion !== null && porNombre ? accion : null };
 }

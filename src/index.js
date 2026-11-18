@@ -172,6 +172,14 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
   return { estado, respuestas, avisos, caso };
 }
 
+// Con IA el cliente contesta con sus palabras: las listas no le piden números.
+// (El pago con crédito sí se confirma con el número.)
+function sinPedirNumeros(texto) {
+  return texto
+    .replace(/¿En qué te ayudo\? Responde con el número:/, '¿En qué te ayudo? Dime qué necesitas:')
+    .replace(/Responde con el número[^\n]*/g, 'Dime cuál quieres, o escribe *menu* para volver.');
+}
+
 // Lo que el cliente tiene en curso, para que la IA pueda contestarle "¿y mi pago?".
 function pendientesDe(jid, contexto) {
   const nombres = {
@@ -336,7 +344,8 @@ async function atender(mensaje) {
   const ejecutado = await ejecutarAcciones(resultado.acciones ?? [], { jid, estado: resultado.estado, contexto, telefono, nombre });
   guardarEstado(jid, ejecutado.estado);
 
-  for (const respuesta of [...resultado.respuestas, ...ejecutado.respuestas]) {
+  for (const original of [...resultado.respuestas, ...ejecutado.respuestas]) {
+    const respuesta = asistente && ejecutado.estado.paso !== 'forma-pago' ? sinPedirNumeros(original) : original;
     await conexion.enviarTexto(jid, respuesta);
     asistente?.anotar(jid, 'assistant', respuesta);
   }

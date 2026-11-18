@@ -109,3 +109,13 @@ test('pide que el modelo se quede cargado y lo precarga al arrancar', async () =
   assert.equal(pedidos[1].cuerpo.options.num_predict, 300);
   assert.equal(pedidos[1].cuerpo.think, false);
 });
+
+test('si la IA termina preguntando, solo ofrece: no inicia la acción', () => {
+  assert.deepEqual(interpretarRespuesta('¡Hola! ¿Te gustaría ver la lista de planes? [[accion:planes]]'), {
+    texto: '¡Hola! ¿Te gustaría ver la lista de planes?',
+    opcion: null,
+    elegir: null,
+    accion: null,
+  });
+  assert.equal(interpretarRespuesta('¡Va! Aquí están. [[accion:planes]]').opcion, 1);
+});
