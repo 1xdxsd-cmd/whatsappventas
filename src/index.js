@@ -172,6 +172,10 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
   return { estado, respuestas, avisos, caso };
 }
 
+// Pasos donde el cliente elige con un número. En los demás (motivo del reporte,
+// contraseña nueva, monto de recarga, comprobante, asesor) el texto es la respuesta.
+const PASOS_CON_NUMEROS = ['inicio', 'menu', 'catalogo', 'tipo', 'renovar', 'reporte', 'forma-pago', 'elegir-cobrador', 'cuenta'];
+
 const PISTAS = {
   pedido: ({ id }) => `Cuando confirmes el pago: /aprobar ${id} (o /rechazar ${id} motivo).`,
   recarga: ({ id }) => `Cuando confirmes el pago: /aprobar ${id} suma el crédito (o /rechazar ${id} motivo).`,
@@ -276,12 +280,13 @@ async function atender(mensaje) {
     }
   }
 
-  // Texto libre en el menú: responde la IA. Si pide una acción ([[opcion:N]]),
+  // Texto libre donde el bot espera un número (menú, lista de planes, de
+  // cuentas...): responde la IA. Si pide una acción ([[opcion:N]]),
   // se sigue como si el cliente hubiera escrito ese número; si no responde,
   // queda el menú de números de siempre.
   let entrada = leido;
   let desde = anterior;
-  if (asistente && ['inicio', 'menu'].includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo) {
+  if (asistente && PASOS_CON_NUMEROS.includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo) {
     if (entiendeElMenu(leido.texto)) {
       asistente.olvidar(jid);
     } else {

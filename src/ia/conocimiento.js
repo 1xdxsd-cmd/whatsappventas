@@ -48,7 +48,7 @@ export function instrucciones(contexto, conocimiento = '') {
     'No tienes correos ni contraseñas de cuentas: nunca los des ni los inventes. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
     'Para comprar: el cliente elige el servicio, paga por transferencia (o con su crédito si le alcanza), manda la foto del comprobante y un asesor confirma y le envía los datos.',
     `Acciones del bot: ${menu}.`,
-    'Si el cliente quiere hacer una de esas acciones, termina tu respuesta con la etiqueta [[opcion:N]] (solo una, con su número) y el bot la inicia. Si solo pregunta algo, responde sin etiqueta.',
+    'Solo si el cliente pide claramente hacer una de esas acciones (por ejemplo "quiero renovar" = 2, "quiero comprar Netflix" o "qué planes tienen" = 1), termina tu respuesta con la etiqueta [[opcion:N]] (solo una) y el bot la inicia. Si solo saluda o pregunta algo, responde sin etiqueta y pregúntale qué necesita.',
     '',
     'PLANES:',
     textoPlanes(servicios, moneda),

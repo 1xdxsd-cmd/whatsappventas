@@ -31,7 +31,7 @@ El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
 ## IA con Ollama (opcional)
 
-Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.com`) e `IA_MODELO` en el `.env`, cuando el cliente escribe texto libre en el menú ("hola", "¿cuánto cuesta Netflix?", "quiero Disney") le contesta la IA en vez del "No entendí". Los números y las palabras clave (`menu`, `renovar`, `asesor`, `saldo`...) siguen yendo directo al menú.
+Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.com`) e `IA_MODELO` en el `.env`, cuando el cliente escribe texto libre donde el bot espera un número (el menú, la lista de planes, de cuentas...) ("hola", "¿cuánto cuesta Netflix?", "quiero Disney") le contesta la IA en vez del "No entendí". Los números y las palabras clave (`menu`, `renovar`, `asesor`, `saldo`...) siguen yendo directo al menú.
 
 - La IA sabe solo datos reales: los planes y precios de la página, el nombre, crédito y cuentas activas del cliente (sin correos ni contraseñas) y lo que escribas en `conocimiento.md` (horarios, garantía, reglas; copia `conocimiento.ejemplo.md`). Se lee en cada mensaje, así que puedes cambiarlo sin reiniciar.
 - Si el cliente quiere hacer algo (comprar, renovar, reportar, asesor, recargar...), la IA lo pasa a la opción del menú y desde ahí sigue el flujo de siempre. La IA nunca entrega cuentas, confirma pagos ni cambia contraseñas.
