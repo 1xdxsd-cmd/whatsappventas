@@ -76,3 +76,18 @@ test('a las direcciones sin esquema se les pone http:// o https://', async () =>
   assert.equal(conEsquema(' 45.1.2.3:8081 ', 'http'), 'http://45.1.2.3:8081');
   assert.equal(conEsquema('', 'http'), '');
 });
+
+test('pide que el modelo se quede cargado y lo precarga al arrancar', async () => {
+  const pedidos = [];
+  const fetch = async (url, opciones) => {
+    pedidos.push({ url, cuerpo: JSON.parse(opciones.body) });
+    return { ok: true, json: async () => ({ message: { content: 'Hola' } }) };
+  };
+  const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'novatech', esperaMs: 1000, logger: { info() {}, warn() {} }, fetch });
+  await asistente.precalentar();
+  await asistente.conversar('chat', 'hola', contexto);
+  assert.equal(pedidos[0].url, 'https://ia.x.com/api/generate');
+  assert.deepEqual(pedidos[0].cuerpo, { model: 'novatech', keep_alive: '24h' });
+  assert.equal(pedidos[1].cuerpo.keep_alive, '24h');
+  assert.equal(pedidos[1].cuerpo.options.num_predict, 300);
+});

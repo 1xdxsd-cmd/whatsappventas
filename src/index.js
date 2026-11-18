@@ -31,6 +31,7 @@ if (!pagina) {
 
 const casos = crearRegistroDeCasos();
 const asistente = config.ia ? crearAsistente({ ...config.ia, logger }) : null;
+asistente?.precalentar();
 
 async function cargarContexto(telefono, jid) {
   const contexto = {
