@@ -516,7 +516,7 @@ async function atender(mensaje) {
         } else {
           logger.warn({ accion: ia.accion, error: hecho.error }, 'La IA pidió una acción que no se pudo hacer');
           asistente.anotar(jid, 'system', `No se pudo hacer la acción: ${hecho.error}. Pregúntale al cliente lo que falta.`);
-          await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : 'Perdón, no pude completarlo. 😕 ¿Me confirmas qué quieres y cómo pagas?');
+          await conexion.enviarTexto(jid, hecho.aviso ?? (ia.texto && esPregunta(ia.texto) ? ia.texto : 'Perdón, no pude completarlo. 😕 ¿Me confirmas qué quieres y cómo pagas?'));
         }
         if (!hecho || hecho.error) {
           guardarEstado(jid, siguiente);

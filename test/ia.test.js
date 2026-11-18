@@ -303,3 +303,24 @@ test('reconoce la cuenta que nombra el cliente', () => {
   assert.deepEqual(rentasNombradas('la 4', rentasAnthony), [3]);
   assert.deepEqual(rentasNombradas('quiero renovar', rentasAnthony), []);
 });
+
+test('bloquea precios inventados y tipos que la plataforma no tiene', () => {
+  const servicios = [...SERVICIOS_BASE, { id: 's1', name: 'Spotify', platform: 'spotify', type: 'cuenta', price: 40, duration: 30 }];
+  const ctx = { ...contexto, servicios, cliente: { id: 'c1', nombre: 'Luis', saldo: 415 } };
+  assert.match(revisarRespuesta({ texto: 'El perfil de Spotify cuesta $25 al mes 🎵', accion: null }, '¿cuánto el perfil de spotify?', ctx), /\$25 no existe/);
+  assert.match(revisarRespuesta({ texto: 'Claro, te vendo un perfil de Spotify 🎵', accion: null }, 'quiero spotify', ctx), /no tiene perfiles/);
+  assert.equal(revisarRespuesta({ texto: 'Spotify solo tiene cuenta completa a $40 al mes 🎵', accion: null }, '¿hay perfil de spotify?', ctx), null);
+  assert.equal(revisarRespuesta({ texto: 'Netflix perfil cuesta $80 y te quedarían $335 de crédito ✅', accion: null }, 'netflix', ctx), null);
+  assert.equal(revisarRespuesta({ texto: 'Para recargar $10,000 te mando los datos ✅', accion: { nombre: 'recargar', datos: ['10000'] } }, '10000', ctx), null);
+});
+
+test('PLANES dice qué tipo no hay en cada plataforma', () => {
+  const servicios = [...SERVICIOS_BASE, { id: 's1', name: 'Spotify', platform: 'spotify', type: 'cuenta', price: 40, duration: 30 }];
+  assert.match(instrucciones({ ...contexto, servicios }), /Spotify \[clave: spotify\]: cuenta \$40 al mes \(NO hay perfiles, solo cuenta completa\)/);
+});
+
+test('comprar un tipo que no hay ofrece el que sí hay', () => {
+  const servicios = [...SERVICIOS_BASE, { id: 's1', name: 'Spotify', platform: 'spotify', type: 'cuenta', price: 40, duration: 30 }];
+  const r = ejecutarAccion({ nombre: 'comprar', datos: ['spotify', 'perfil', 'transferencia'] }, { ...contextoAccion, servicios }, procesarMensaje);
+  assert.match(r.aviso, /Spotify no tiene perfiles por ahora; solo cuenta completa a \$40/);
+});

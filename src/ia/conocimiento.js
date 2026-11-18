@@ -13,7 +13,9 @@ function textoPlanes(servicios, moneda) {
       const precios = grupo.opciones
         .map((s) => `${s.type === 'cuenta' ? 'cuenta' : 'perfil'} ${formatearPrecio(s.price, moneda)} ${formatearDuracion(s.duration)}`)
         .join(', ');
-      return `- ${grupo.nombre} [clave: ${grupo.platform}]: ${precios}`;
+      const tipos = new Set(grupo.opciones.map((s) => (s.type === 'cuenta' ? 'cuenta' : 'perfil')));
+      const falta = !tipos.has('perfil') ? ' (NO hay perfiles, solo cuenta completa)' : !tipos.has('cuenta') ? ' (NO hay cuenta completa, solo perfiles)' : '';
+      return `- ${grupo.nombre} [clave: ${grupo.platform}]: ${precios}${falta}`;
     })
     .join('\n');
 }
@@ -154,7 +156,7 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'cliente: "uso mi crédito" (para RENOVAR su Cuenta 3) → tú: "¡Va! ✅ La renuevo con tu crédito. [[renovar:3:credito]]". Una renovación NUNCA es [[comprar:...]].',
     'cliente: "quiero un perfil de netflix, pago por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Perfecto! 🍿 Te mando los datos para tu perfil de Netflix. [[comprar:netflix:perfil:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
     '',
-    'PLANES:',
+    'PLANES (solo existe lo que está en esta lista; si piden un tipo que no hay, dile que no está disponible y ofrece el que sí hay con su precio exacto; nunca calcules ni inventes precios):',
     textoPlanes(servicios, moneda),
     '',
     'CLIENTE:',
@@ -199,7 +201,43 @@ export function interpretarRespuesta(respuesta) {
 // Lo que un modelo chico suele hacer mal pese a las instrucciones: inventar
 // datos de pago, decir que confirmó un pago o anunciar algo que no muestra.
 // Devuelve la corrección para pedirle otra respuesta, o null si está bien.
-export function revisarRespuesta({ texto, accion }, dicho = '') {
+// Precios que puede decir la IA: los del catálogo, los de renovar sus cuentas,
+// su crédito y los montos que escribió el cliente.
+function preciosValidos(contexto, dicho) {
+  const { servicios = [], rentas = [], cliente } = contexto;
+  const validos = new Set([...servicios.map((s) => Number(s.price)), ...rentas.map((r) => precioDeRenovacion(r, servicios)), Number(cliente?.saldo ?? 0), RECARGA_MINIMA]);
+  for (const m of String(dicho).matchAll(/\d[\d,.]*/g)) validos.add(Number(m[0].replace(/,/g, '')));
+  // "te quedarían $330": su crédito menos un precio.
+  const saldo = Number(cliente?.saldo ?? 0);
+  for (const precio of [...validos]) if (saldo > precio) validos.add(saldo - precio);
+  return validos;
+}
+
+const escapar = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// "perfil de Spotify" cuando Spotify solo tiene cuenta completa (salvo que lo esté aclarando).
+function tipoQueNoHay(texto, servicios) {
+  if (/no (hay|tiene|tenemos|manejamos|est[aá] disponible)|solo|s[oó]lo|[uú]nicamente/i.test(texto)) return null;
+  for (const grupo of agruparPorPlataforma(servicios)) {
+    const tipos = new Set(grupo.opciones.map((s) => (s.type === 'cuenta' ? 'cuenta' : 'perfil')));
+    const nombre = escapar(grupo.nombre);
+    const cerca = (t) => new RegExp(`${t}[^.?!]{0,25}${nombre}|${nombre}[^.?!]{0,25}${t}`, 'i').test(texto);
+    if (!tipos.has('perfil') && cerca('perfil')) return `${grupo.nombre} no tiene perfiles, solo cuenta completa`;
+    if (!tipos.has('cuenta') && cerca('cuenta completa')) return `${grupo.nombre} no tiene cuenta completa, solo perfiles`;
+  }
+  return null;
+}
+
+export function revisarRespuesta({ texto, accion }, dicho = '', contexto = null) {
+  if (contexto?.servicios?.length) {
+    const validos = preciosValidos(contexto, dicho);
+    const inventado = [...texto.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)/g)].map((m) => Number(m[1].replace(/,/g, ''))).find((n) => !validos.has(n));
+    if (inventado !== undefined) {
+      return `El precio $${inventado} no existe. Usa solo los precios exactos de PLANES o de sus cuentas; si el tipo que pide no está en PLANES, dile que no está disponible y ofrece el que sí hay.`;
+    }
+    const noHay = tipoQueNoHay(texto, contexto.servicios);
+    if (noHay) return `Ojo: ${noHay}. Díselo al cliente y ofrécele lo que sí hay, con su precio exacto de PLANES.`;
+  }
   // Las contraseñas de sus cuentas solo cuando las pide: una compra o un pago
   // nunca se contestan con los datos de otra cuenta.
   if (accion?.nombre === 'datos' && !pideAcceso(dicho)) {
@@ -254,6 +292,7 @@ export function respaldoPara(correccion, cobradores = []) {
     const quien = cobradores.length >= 2 ? ` y a quién le transfieres (${cobradores.map((c) => c.nombre).join(' o ')})` : '';
     return `Para mandarte los datos de pago dime qué quieres, si es compra o renovación${quien}. 🙂`;
   }
+  if (correccion.startsWith('El precio') || correccion.startsWith('Ojo:')) return 'Perdón, me confundí con el precio. 😅 ¿De qué plataforma lo quieres? Te digo exactamente qué hay y cuánto cuesta.';
   if (correccion.startsWith('El cliente NO pidió')) return '¿Me confirmas qué quieres comprar o renovar y cómo lo pagas? 🙂';
   return 'Perdón, no te entendí bien. 😅 ¿Me lo dices con otras palabras?';
 }

@@ -52,7 +52,10 @@ export function pasosDeAccion({ nombre, datos: crudos }, contexto) {
       if (g < 0) return { error: `no encontré la plataforma "${clave ?? ''}"` };
       const buscado = normalizar(tipo).startsWith('cuenta') || normalizar(tipo).startsWith('complet') ? 'cuenta' : 'perfil';
       const o = grupos[g].opciones.findIndex((s) => (s.type === 'cuenta' ? 'cuenta' : 'perfil') === buscado);
-      if (o < 0) return { error: `${grupos[g].nombre} no tiene ${buscado}` };
+      if (o < 0) {
+        const hay = grupos[g].opciones.map((s) => `${s.type === 'cuenta' ? 'cuenta completa' : 'perfil'} a $${s.price}`).join(' o ');
+        return { error: `${grupos[g].nombre} no tiene ${buscado}`, aviso: `${grupos[g].nombre} no tiene ${buscado === 'cuenta' ? 'cuenta completa' : 'perfiles'} por ahora; solo ${hay}. 🙂 ¿Te sirve?` };
+      }
       return { entradas: ['1', String(g + 1), String(o + 1)], pago, cobrador };
     }
     case 'renovar': {
