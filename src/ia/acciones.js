@@ -118,3 +118,21 @@ export function ejecutarAccion(accion, contexto, procesar) {
   if (PASOS_DE_LISTA.includes(estado.paso)) return { error: 'faltó un dato para terminar' };
   return { respuestas: resultado.respuestas, estado, acciones, aviso };
 }
+
+/**
+ * El modelo a veces cambia de servicio en la etiqueta (el cliente habla de ViX y
+ * pone spotify). Si la plataforma de la etiqueta no aparece en lo que dijo el
+ * cliente y él nombró exactamente otra, se usa la que nombró.
+ * @param {string[]} dijo últimos mensajes del cliente
+ */
+export function plataformaQueDijo(accion, servicios, dijo) {
+  if (accion?.nombre !== 'comprar' || !accion.datos.length) return accion;
+  const grupos = agruparPorPlataforma(servicios);
+  const texto = normalizar(dijo.join(' '));
+  const nombrada = (g) => [g.platform, g.nombre].some((n) => normalizar(n).length >= 3 && texto.includes(normalizar(n)));
+  const pedida = grupos[indicePlataforma(grupos, accion.datos[0])];
+  if (pedida && nombrada(pedida)) return accion;
+  const nombradas = grupos.filter(nombrada);
+  if (nombradas.length !== 1) return accion;
+  return { ...accion, datos: [nombradas[0].platform, ...accion.datos.slice(1)] };
+}

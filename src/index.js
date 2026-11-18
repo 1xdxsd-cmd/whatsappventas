@@ -3,7 +3,7 @@ import { crearAtencionAdmin } from './admin/atencion.js';
 import { crearRegistroDeCasos } from './admin/comandos.js';
 import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
-import { ejecutarAccion } from './ia/acciones.js';
+import { ejecutarAccion, plataformaQueDijo } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
 import { esPregunta, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
@@ -387,6 +387,11 @@ async function atender(mensaje) {
       }
       // La acción se prueba antes de mandar lo que dijo la IA, para no decir
       // "¡Listo!" y luego "no pude".
+      if (ia.accion) {
+        const corregida = plataformaQueDijo(ia.accion, contexto.servicios, asistente.loQueDijo(jid, 4));
+        if (corregida !== ia.accion) logger.warn({ pidio: ia.accion, uso: corregida }, 'La IA cambió de servicio; uso el que nombró el cliente');
+        ia.accion = corregida;
+      }
       const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
       let siguiente = { paso: 'menu' };
       if (!hecho?.error) {

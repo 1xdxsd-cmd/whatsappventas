@@ -172,7 +172,8 @@ export function revisarRespuesta({ texto, accion }) {
   }
   const hablaDeDatos = /(datos (bancarios|de pago|de (la )?transferencia|para (transferir|pagar))|cuenta para transferir|clabe)/i.test(texto);
   const losDa = /(datos[^.!?¿]{0,40}\b(son|aqu[ií])\b|aqu[ií] (tienes|est[aá]n|van) (los|tus)? ?datos|te (env[ií]o|mando|paso) (los|tus) datos)/i.test(texto);
-  if (losDa || (hablaDeDatos && !/\?\s*\S{0,6}\s*$/.test(texto))) {
+  // Mencionarlos en una pregunta ("¿a quién le pagas para darte los datos bancarios?") está bien.
+  if (losDa || (hablaDeDatos && !texto.includes('?'))) {
     return 'No tienes datos bancarios. Si el cliente ya dijo qué paga, cómo y a quién, responde con una frase corta y la etiqueta al final; si falta algo, pregúntalo.';
   }
   if (/aqu[ií] (tienes|est[aá]n?)\b[^.!?]*:\s*[.!¿]/i.test(texto)) {

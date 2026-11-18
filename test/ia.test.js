@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
-import { ejecutarAccion } from '../src/ia/acciones.js';
+import { ejecutarAccion, plataformaQueDijo } from '../src/ia/acciones.js';
 import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
@@ -240,4 +240,17 @@ test('la memoria guarda la etiqueta de la acción', async () => {
   await asistente.conversar('chat', 'renuevo la 1', contexto);
   await asistente.conversar('chat', 'gracias', contexto);
   assert.match(JSON.stringify(fetch.pedidos[1].cuerpo.messages), /\[\[renovar:1:transferencia\]\]/);
+});
+
+test('si la IA cambia de servicio, usa el que nombró el cliente', () => {
+  const servicios = [...SERVICIOS_BASE, { id: 'v1', name: 'ViX', platform: 'vix', type: 'perfil', price: 50, duration: 30 }, { id: 's1', name: 'Spotify', platform: 'spotify', type: 'cuenta', price: 40, duration: 30 }];
+  const accion = { nombre: 'comprar', datos: ['spotify', 'perfil', 'transferencia', 'Anthony'] };
+  assert.deepEqual(plataformaQueDijo(accion, servicios, ['Vix', 'Quiero comprar una', 'Perfil y a Anthony']).datos, ['vix', 'perfil', 'transferencia', 'Anthony']);
+  assert.equal(plataformaQueDijo(accion, servicios, ['quiero spotify']), accion);
+  assert.equal(plataformaQueDijo(accion, servicios, ['quiero algo']), accion);
+});
+
+test('mencionar los datos bancarios en una pregunta no se corrige', () => {
+  const texto = '¿Quieres comprar un perfil de ViX ($50)? Si es así, dime a quién transfieres (*Anthony* o *Thalia*) para que te dé los datos bancarios. 📺💳';
+  assert.equal(revisarRespuesta({ texto, accion: null }), null);
 });
