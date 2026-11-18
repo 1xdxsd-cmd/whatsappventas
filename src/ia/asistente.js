@@ -41,14 +41,11 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
     historiales.set(chat, { mensajes: todos, ultimo: ahora() });
   }
 
-  /**
-   * @param {string} paso el paso del bot en que está el cliente (para que la IA sepa qué lista ve)
-   */
-  async function conversar(chat, texto, contexto, paso = 'menu') {
+  async function conversar(chat, texto, contexto) {
     if (ahora() < pausadoHasta) return null;
     const anteriores = historial(chat);
     const mensajes = [
-      { role: 'system', content: instrucciones(contexto, await leerConocimiento(), { paso, conversacionEnCurso: anteriores.length > 0 }) },
+      { role: 'system', content: instrucciones(contexto, await leerConocimiento(), { conversacionEnCurso: anteriores.length > 0 }) },
       ...anteriores,
       { role: 'user', content: texto },
     ];
@@ -72,7 +69,7 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
       if (!respuesta.ok) throw new Error(`Ollama respondió ${respuesta.status}`);
       const datos = await respuesta.json();
       const resultado = interpretarRespuesta(datos.message?.content);
-      if (!resultado.texto && resultado.opcion === null) throw new Error('Respuesta vacía');
+      if (!resultado.texto && resultado.accion === null) throw new Error('Respuesta vacía');
       recordar(chat, { role: 'user', content: texto }, { role: 'assistant', content: resultado.texto });
       return resultado;
     } catch (error) {

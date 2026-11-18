@@ -31,15 +31,23 @@ El estado de cada conversación vive en memoria y se pierde al reiniciar el bot.
 
 ## IA con Ollama (opcional)
 
-Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.com`) e `IA_MODELO` en el `.env`, cuando el cliente escribe texto libre donde el bot espera un número (el menú, la lista de planes, de cuentas...) ("hola", "¿cuánto cuesta Netflix?", "quiero Disney") le contesta la IA en vez del "No entendí". Los números y las palabras clave (`menu`, `renovar`, `asesor`, `saldo`...) siguen yendo directo al menú.
+Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.com`) e `IA_MODELO` en el `.env`, el cliente platica con la IA y **no ve el menú de números**: la IA da la información (precios, sus cuentas y vencimientos, su crédito) y, cuando el cliente confirma, hace la acción por detrás con una etiqueta que el cliente no ve:
 
-- La IA sabe solo datos reales: los planes y precios de la página, el nombre, crédito y cuentas activas del cliente (sin correos ni contraseñas) y lo que escribas en `conocimiento.md` (horarios, garantía, reglas; copia `conocimiento.ejemplo.md`). Se lee en cada mensaje, así que puedes cambiarlo sin reiniciar.
-- Si el cliente quiere hacer algo (comprar, renovar, reportar, asesor, recargar...), la IA lo pasa a la opción del menú y desde ahí sigue el flujo de siempre. La IA nunca entrega cuentas, confirma pagos ni cambia contraseñas.
-- No le pide números al cliente: entiende lo que quiere e inicia la acción (`[[accion:renovar]]`) o elige de la lista que el cliente está viendo (`[[elegir:2]]`). Solo el pago con crédito se elige escribiendo el número, para que la IA nunca cobre por error.
-- Recuerda los últimos 12 mensajes de cada chat, incluidos los del menú, y no vuelve a saludar mientras la conversación sigue (se olvida tras 6 horas sin escribir). También sabe qué tiene el cliente en curso (pago en revisión, reporte abierto) para contestarle.
-- Antes de pasar con un asesor intenta entender el problema; el aviso al asesor incluye lo último que contó el cliente.
+| Etiqueta | Qué hace el bot |
+| --- | --- |
+| `[[comprar:netflix:perfil:transferencia]]` | Crea el pedido y manda los datos de transferencia (o cobra con `credito`) |
+| `[[renovar:1:transferencia]]` | Renueva la cuenta 1 del cliente |
+| `[[reportar:1:pide código]]` | Guarda el reporte de la cuenta 1 |
+| `[[recargar:300]]` | Recarga de crédito por transferencia |
+| `[[clave]]` | Le pide la contraseña nueva de la página |
+| `[[asesor]]` | Lo pasa con un asesor; el aviso lleva lo que contó |
+
+Con varias personas que cobran (`PAGO_N_...`), la IA pregunta a quién pagar y lo agrega al final (`...:transferencia:Thalia`). Las etiquetas pasan por la misma conversación del menú, así que los cobros, pedidos y reportes siguen las mismas reglas. Si la IA solo ofrece algo ("¿te paso los datos?") no se hace nada hasta que el cliente confirme. El comprobante, el motivo del reporte, la contraseña nueva y el chat con asesor funcionan igual que siempre.
+
+- La IA sabe solo datos reales: los planes de la página, el nombre, usuario, crédito y cuentas activas del cliente (sin correos ni contraseñas), lo que tiene en curso (pago en revisión, reporte abierto) y lo que escribas en `conocimiento.md` (copia `conocimiento.ejemplo.md`). Se lee en cada mensaje.
+- Recuerda los últimos 12 mensajes de cada chat y no vuelve a saludar mientras la conversación sigue (se olvida tras 6 horas sin escribir o al reiniciar el bot).
 - Las negritas salen en formato de WhatsApp (`*así*`).
-- Si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú de números y no vuelve a intentar con la IA durante un minuto.
+- **El menú de números es solo el respaldo**: si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú y no vuelve a intentar con la IA durante un minuto.
 
 ## Atender desde tu WhatsApp (admin)
 
