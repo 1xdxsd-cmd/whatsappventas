@@ -49,6 +49,8 @@ Con varias personas que cobran (`PAGO_N_...`), la IA pregunta a quién pagar y l
 - La IA sabe solo datos reales: los planes de la página, el nombre, usuario, crédito y cuentas activas del cliente con su correo y fecha (las contraseñas no: esas las manda el bot con `[[datos:N]]`), lo que tiene en curso (pago en revisión, reporte abierto) y lo que escribas en `conocimiento.md` (copia `conocimiento.ejemplo.md`). Se lee en cada mensaje.
 - Recuerda los últimos 12 mensajes de cada chat y no vuelve a saludar mientras la conversación sigue (se olvida tras 6 horas sin escribir o al reiniciar el bot).
 - Las negritas salen en formato de WhatsApp (`*así*`).
+- **Revisión de cada respuesta**: si la IA escribe datos de pago inventados o textos entre corchetes, dice que ya confirmó un pago o una recarga, o anuncia algo que no muestra, el bot no lo manda: le pide otra respuesta y, si vuelve a fallar, pasa al cliente con un asesor.
+- **Fotos con la IA activa**: si el cliente manda una foto sin pedido en curso (por ejemplo, el comprobante antes de pedir los datos), la IA pregunta qué está pagando; cuando genera el pedido, esa foto (de los últimos 30 minutos) se toma como su comprobante. No aparece el menú de números.
 - **El menú de números es solo el respaldo**: si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú y no vuelve a intentar con la IA durante un minuto.
 
 ## Atender desde tu WhatsApp (admin)

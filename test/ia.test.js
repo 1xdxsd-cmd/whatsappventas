@@ -4,7 +4,7 @@ import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
 import { ejecutarAccion } from '../src/ia/acciones.js';
-import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
 const contexto = {
@@ -72,6 +72,7 @@ test('las instrucciones llevan precios con su clave, cuentas numeradas con corre
   assert.match(texto, /Laura\. Usuario de la página: laura1\. Crédito disponible: \$120/);
   assert.match(texto, /Cuenta 1: Netflix \(perfil, correo secreto@x\.com\), vence el 1 de diciembre de 2026 a las 8 pm, renovarla cuesta \$80/);
   assert.match(texto, /Horario: 10 am a 10 pm/);
+  assert.doesNotMatch(instrucciones(contexto, 'Garantía: [COMPLETA: días]'), /COMPLETA/);
   assert.match(texto, /Es el primer mensaje: saluda una sola vez/);
   assert.match(texto, /Nunca muestres menús ni listas numeradas/);
   assert.doesNotMatch(texto, /clave'|Contraseña: clave/);
@@ -176,4 +177,43 @@ test('datos de acceso: correo y contraseña de la cuenta de la página', () => {
 test('reconoce las etiquetas de mis cuentas y datos de acceso', () => {
   assert.deepEqual(interpretarRespuesta('Claro 😊 [[mis-cuentas]]').accion, { nombre: 'mis-cuentas', datos: [] });
   assert.deepEqual(interpretarRespuesta('Va, te los mando 🔑 [[datos:2]]').accion, { nombre: 'datos', datos: ['2'] });
+});
+
+test('detecta cuando la IA inventa datos de pago o dice que confirmó un pago', () => {
+  const malas = [
+    'Aquí tienes los datos de transferencia para pagar a *Anthony* por $85: [Insertar Datos Bancarios Aquí] 🏦💳',
+    'Perfecto, por $85, los datos de pago son: *Anthony* 📲. ¿Te envío ahora? 💳',
+    'Con transferencia a *Anthony*, aquí tienes los datos bancarios. Recuérdame el comprobante 📲✅',
+    '¡Excelente, Luis! Ya confirmé el pago de $85 a *Anthony*. 📲✅',
+    'Ya procesé tu recargo de $10,000 MXN. Tu crédito actualizado está listo para usar.',
+    'Aquí tienes el resumen de tus cuentas: . ¿Cuál renuevas?',
+  ];
+  for (const texto of malas) assert.ok(revisarRespuesta({ texto, accion: null }), texto);
+  const buenas = [
+    '¿Prefieres pagar con tu crédito ($50) o con transferencia? 💳',
+    '¿A quién le pagas: Anthony o Thalia? 🙌',
+    'Cuando el admin confirme el pago te aviso 🙌',
+  ];
+  for (const texto of buenas) assert.equal(revisarRespuesta({ texto, accion: null }), null, texto);
+  assert.equal(revisarRespuesta({ texto: '¡Va! 🙌 Te mando los datos para renovar.', accion: { nombre: 'renovar', datos: ['1'] } }), null);
+  assert.equal(preguntaFinal('Aquí tienes: . ¿Cuál quieres renovar? 📅'), '¿Cuál quieres renovar? 📅');
+  assert.equal(preguntaFinal('Listo ✅'), '');
+});
+
+test('si la IA inventa, le pide otra respuesta; si insiste, pasa a un asesor', async () => {
+  const fetch = fetchFalso(['Ya confirmé tu pago ✅', '¡Va! 🙌 Te mando los datos. [[renovar:1:transferencia]]']);
+  const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch });
+  const r = await asistente.conversar('chat', 'renuevo la 1 por transferencia', contexto);
+  assert.deepEqual(r.accion, { nombre: 'renovar', datos: ['1', 'transferencia'] });
+  assert.equal(fetch.pedidos[1].cuerpo.messages.at(-1).role, 'system');
+  const otra = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch: fetchFalso(['Ya confirmé tu pago ✅', 'Ya quedó tu pago ✅']) });
+  assert.deepEqual((await otra.conversar('chat', 'ya pagué', contexto)).accion, { nombre: 'asesor', datos: [] });
+});
+
+test('la memoria guarda la etiqueta de la acción', async () => {
+  const fetch = fetchFalso(['¡Va! 🙌 [[renovar:1:transferencia]]', 'Listo']);
+  const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch });
+  await asistente.conversar('chat', 'renuevo la 1', contexto);
+  await asistente.conversar('chat', 'gracias', contexto);
+  assert.match(JSON.stringify(fetch.pedidos[1].cuerpo.messages), /\[\[renovar:1:transferencia\]\]/);
 });

@@ -5,7 +5,7 @@ import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
-import { textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
+import { preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -219,6 +219,9 @@ function pendientesDe(jid, contexto) {
 // Pasos donde, con IA, el cliente platica con ella: el menú y sus listas. En los
 // demás (comprobante, motivo del reporte, contraseña nueva, monto de recarga,
 // asesor) el bot espera esa respuesta concreta.
+const archivosSueltos = new Map(); // jid -> { mensaje, hora }: última foto mandada fuera de un pago
+const FOTO_VALE_POR = 30 * 60 * 1000;
+
 const PASOS_DE_PLATICA = ['inicio', 'menu', 'catalogo', 'tipo', 'renovar', 'reporte', 'forma-pago', 'elegir-cobrador', 'cuenta'];
 
 const PISTAS = {
@@ -331,20 +334,35 @@ async function atender(mensaje) {
   // no responde, queda el menú de números de siempre.
   let resultado = null;
   let accionDeIA = null;
-  if (asistente && PASOS_DE_PLATICA.includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo) {
+  if (leido.tieneArchivo && anterior.paso === 'pago') archivosSueltos.delete(jid);
+  if (asistente && PASOS_DE_PLATICA.includes(anterior.paso) && (leido.texto.trim() || leido.tieneArchivo)) {
     conexion.escribiendo(jid);
     contexto.pendientes = pendientesDe(jid, contexto);
-    const ia = await asistente.conversar(jid, leido.texto.trim(), contexto);
+    // Una foto fuera de un pago (casi siempre un comprobante antes de pedir los
+    // datos) se le cuenta a la IA y se guarda: si la IA genera el pedido, se
+    // toma como su comprobante.
+    if (leido.tieneArchivo) archivosSueltos.set(jid, { mensaje, hora: Date.now() });
+    const dicho = leido.tieneArchivo
+      ? `(El cliente mandó una foto o archivo${leido.texto.trim() ? ` con el texto: "${leido.texto.trim()}"` : ''}. No la puedes ver.)`
+      : leido.texto.trim();
+    const ia = await asistente.conversar(jid, dicho, contexto);
     if (ia) {
-      if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
       // Mostrar cuentas o pasar datos de acceso no son flujos del menú: se
       // contestan aquí, con los datos reales de la página.
-      if (ia.accion?.nombre === 'mis-cuentas' || ia.accion?.nombre === 'datos') {
-        const texto = ia.accion.nombre === 'mis-cuentas'
-          ? textoMisCuentas(contexto.rentas, contexto.servicios, config.moneda)
-          : await datosDeAcceso(contexto, ia.accion.datos[0]);
-        await conexion.enviarTexto(jid, texto);
-        asistente.anotar(jid, 'assistant', ia.accion.nombre === 'datos' ? 'Le envié los datos de acceso de esa cuenta.' : texto);
+      if (ia.accion?.nombre === 'mis-cuentas') {
+        const lista = textoMisCuentas(contexto.rentas, contexto.servicios, config.moneda);
+        await conexion.enviarTexto(jid, lista);
+        // De lo que dijo la IA solo va la pregunta: el resto suele ser "aquí tienes:".
+        const pregunta = preguntaFinal(ia.texto);
+        if (pregunta) await conexion.enviarTexto(jid, pregunta);
+        asistente.anotar(jid, 'assistant', lista);
+        guardarEstado(jid, { paso: 'menu' });
+        return;
+      }
+      if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+      if (ia.accion?.nombre === 'datos') {
+        await conexion.enviarTexto(jid, await datosDeAcceso(contexto, ia.accion.datos[0]));
+        asistente.anotar(jid, 'assistant', 'Le envié los datos de acceso de esa cuenta.');
         guardarEstado(jid, { paso: 'menu' });
         return;
       }
@@ -402,6 +420,14 @@ async function atender(mensaje) {
     const caso = casos.abrir({ jid, telefono, nombre, tipo: 'asesor' });
     guardarEstado(jid, { ...ejecutado.estado, casoId: caso.id });
     await avisarAdmin(`💬 ${quien} espera un asesor (#${caso.id}). Escribe */tomar ${caso.id}* para atenderlo.`);
+  }
+
+  // Mandó la foto antes de que la IA generara el pedido: ahora que el pedido
+  // espera comprobante, esa foto es el comprobante.
+  const suelto = archivosSueltos.get(jid);
+  if (suelto && ejecutado.estado.paso === 'pago' && suelto.mensaje !== mensaje) {
+    archivosSueltos.delete(jid);
+    if (Date.now() - suelto.hora < FOTO_VALE_POR) await atender(suelto.mensaje);
   }
 }
 

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { instrucciones, interpretarRespuesta } from './conocimiento.js';
+import { instrucciones, interpretarRespuesta, revisarRespuesta } from './conocimiento.js';
 
 const MENSAJES_RECORDADOS = 12; // con 4096 de contexto caben pocos mensajes además de las instrucciones
 const LARGO_RECORDADO = 500; // los mensajes largos del bot (listas) se recortan en la memoria
@@ -41,6 +41,29 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
     historiales.set(chat, { mensajes: todos, ultimo: ahora() });
   }
 
+  async function preguntar(mensajes) {
+    const respuesta = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelo,
+        messages: mensajes,
+        stream: false,
+        keep_alive: MANTENER_CARGADO,
+        // Sin razonamiento: los modelos que "piensan" (tipo Qwen) tardan
+        // minutos en eso hasta para un "hola".
+        think: false,
+        options: { temperature: 0.4, num_predict: MAXIMO_DE_PALABRAS },
+      }),
+      signal: AbortSignal.timeout(esperaMs),
+    });
+    if (!respuesta.ok) throw new Error(`Ollama respondió ${respuesta.status}`);
+    const crudo = String((await respuesta.json()).message?.content ?? '');
+    const resultado = interpretarRespuesta(crudo);
+    if (!resultado.texto && resultado.accion === null) throw new Error('Respuesta vacía');
+    return { ...resultado, crudo };
+  }
+
   async function conversar(chat, texto, contexto) {
     if (ahora() < pausadoHasta) return null;
     const anteriores = historial(chat);
@@ -51,27 +74,21 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
     ];
     const inicio = ahora();
     try {
-      const respuesta = await fetch(`${base}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: modelo,
-          messages: mensajes,
-          stream: false,
-          keep_alive: MANTENER_CARGADO,
-          // Sin razonamiento: los modelos que "piensan" (tipo Qwen) tardan
-          // minutos en eso hasta para un "hola".
-          think: false,
-          options: { temperature: 0.4, num_predict: MAXIMO_DE_PALABRAS },
-        }),
-        signal: AbortSignal.timeout(esperaMs),
-      });
-      if (!respuesta.ok) throw new Error(`Ollama respondió ${respuesta.status}`);
-      const datos = await respuesta.json();
-      const resultado = interpretarRespuesta(datos.message?.content);
-      if (!resultado.texto && resultado.accion === null) throw new Error('Respuesta vacía');
-      recordar(chat, { role: 'user', content: texto }, { role: 'assistant', content: resultado.texto });
-      return resultado;
+      let resultado = await preguntar(mensajes);
+      // Si inventó datos o dijo que confirmó un pago, se le pide otra respuesta
+      // una vez; si insiste, mejor lo atiende una persona.
+      const correccion = revisarRespuesta(resultado);
+      if (correccion) {
+        logger.warn({ texto: resultado.texto, correccion }, 'La IA respondió algo que no puede decir; le pido otra respuesta');
+        resultado = await preguntar([...mensajes, { role: 'assistant', content: resultado.crudo }, { role: 'system', content: correccion }]);
+        if (revisarRespuesta(resultado)) {
+          resultado = { texto: 'Te paso con un asesor para revisarlo bien. 🙌', accion: { nombre: 'asesor', datos: [] }, crudo: '' };
+        }
+      }
+      // Se recuerda con su etiqueta, para que el modelo vea que así se hacen las acciones.
+      const etiqueta = resultado.accion ? ` [[${[resultado.accion.nombre, ...resultado.accion.datos].join(':')}]]` : '';
+      recordar(chat, { role: 'user', content: texto }, { role: 'assistant', content: `${resultado.texto}${etiqueta}` });
+      return { texto: resultado.texto, accion: resultado.accion };
     } catch (error) {
       pausadoHasta = ahora() + PAUSA_TRAS_FALLA;
       logger.warn(

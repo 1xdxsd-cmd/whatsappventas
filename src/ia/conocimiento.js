@@ -23,7 +23,6 @@ function precioDeRenovacion(renta, servicios) {
   return Number(renta.price) || delCatalogo?.price || 0;
 }
 
-// Nunca se le pasan correos ni contraseñas de las cuentas: la IA no entrega accesos.
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
 // 2026-12-23 -> 23 de diciembre de 2026
@@ -84,6 +83,8 @@ function textoCliente(cliente, rentas, servicios, moneda) {
  */
 export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso = false } = {}) {
   const { negocio, moneda, servicios, cliente = null, rentas = [], pendientes = [], cobradores = [] } = contexto;
+  // Los huecos sin llenar ([COMPLETA: ...]) enseñan al modelo a escribir corchetes.
+  const informacion = conocimiento.replace(/\[COMPLETA[^\]]*\]/gi, '').replace(/\n{3,}/g, '\n\n');
   const variosCobradores = cobradores.length >= 2;
   const cobrador = variosCobradores ? ':NOMBRE' : '';
   return [
@@ -96,8 +97,11 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'Son las cuentas del propio cliente: puedes decirle el correo y la fecha de cada una. Las contraseñas no las tienes: si las pide, usa [[datos:N]] y el bot se las manda. Nunca inventes datos. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
     'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información y pregunta lo que falte. No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
     'Si pregunta qué cuentas tiene, sus fechas o sus correos, usa [[mis-cuentas]] y el bot le manda la lista exacta (no la cuentes tú).',
+    'Tú NO tienes los datos bancarios: el bot los manda solo cuando pones la etiqueta. Nunca escribas datos de pago, ni textos entre corchetes como [datos], ni digas que los vas a mandar sin la etiqueta.',
+    'Tú no ves fotos ni comprobantes y no puedes confirmar pagos ni cargar crédito: nunca digas que ya confirmaste, procesaste o aplicaste un pago o una recarga. Eso lo hace un admin al revisar el comprobante.',
+    'Si manda una foto o dice que ya pagó y no hay nada EN CURSO: si ya sabes qué paga, cómo y a quién, pon la etiqueta de esa compra, renovación o recarga (el bot toma la foto como comprobante); si no, pregúntale qué está pagando. Si dice que pagó y no se le aplicó, usa [[asesor]].',
     '',
-    'ACCIONES: cuando ya tengas todos los datos y el cliente lo confirmó, termina tu mensaje con UNA etiqueta y el bot la hace (manda los datos de pago, guarda el reporte, etc.). No termines con pregunta si usas etiqueta.',
+    'ACCIONES: en cuanto tengas los datos (qué, cómo paga y, si aplica, a quién), termina tu mensaje con UNA etiqueta y el bot la hace (manda los datos de pago, guarda el reporte, etc.). No preguntes "¿te los mando?": ponla de una vez. No termines con pregunta si usas etiqueta.',
     `- Comprar: [[comprar:CLAVE:TIPO:PAGO${cobrador}]] (CLAVE de PLANES, TIPO perfil o cuenta, PAGO transferencia o credito).`,
     `- Renovar: [[renovar:N:PAGO${cobrador}]] (N = número de la cuenta del cliente).`,
     '- Reportar una cuenta que no funciona: [[reportar:N:qué le pasa]].',
@@ -107,7 +111,8 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     '- Mandarle el correo y la contraseña de una de sus cuentas: [[datos:N]].',
     '- Pasarlo con una persona: [[asesor]] (pagó y no se le aplicó, un problema que no puedes resolver, o lo pide). Antes intenta entender qué pasa con una pregunta corta.',
     'Pagar con credito solo si su crédito alcanza y el cliente dijo claramente que quiere usar su crédito; si no, transferencia.',
-    ...(variosCobradores ? [`Por transferencia se le puede pagar a: ${cobradores.map((c) => c.nombre).join(', ')}. Pregúntale a quién antes de usar la etiqueta y pon ese NOMBRE.`] : []),
+    ...(variosCobradores ? [`Por transferencia se le puede pagar a: ${cobradores.map((c) => c.nombre).join(', ')}. Pregúntale a quién nombrando a todos (${cobradores.map((c) => c.nombre).join(' o ')}) antes de usar la etiqueta y pon ese NOMBRE.`] : []),
+    'EJEMPLO: cliente: "renuevo la 2 por transferencia" → tú: "¡Va! 🙌 Te mando los datos para renovar tu Netflix. [[renovar:2:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
     '',
     'PLANES:',
     textoPlanes(servicios, moneda),
@@ -115,7 +120,7 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'CLIENTE:',
     textoCliente(cliente, rentas, servicios, moneda),
     ...(pendientes.length ? ['', 'EN CURSO (díselo si pregunta por eso):', ...pendientes.map((p) => `- ${p}`)] : []),
-    ...(conocimiento.trim() ? ['', 'INFORMACIÓN DEL NEGOCIO:', conocimiento.trim()] : []),
+    ...(informacion.trim() ? ['', 'INFORMACIÓN DEL NEGOCIO:', informacion.trim()] : []),
   ].join('\n');
 }
 
@@ -146,4 +151,32 @@ export function interpretarRespuesta(respuesta) {
   if (!ACCIONES.includes(nombre) || /\?\s*$/.test(texto)) return { texto, accion: null };
   const datos = etiqueta[2] ? etiqueta[2].slice(1).split(':').map((d) => d.trim()) : [];
   return { texto, accion: { nombre, datos } };
+}
+
+// Lo que un modelo chico suele hacer mal pese a las instrucciones: inventar
+// datos de pago, decir que confirmó un pago o anunciar algo que no muestra.
+// Devuelve la corrección para pedirle otra respuesta, o null si está bien.
+export function revisarRespuesta({ texto, accion }) {
+  if (/\[[^\]]*\]/.test(texto)) {
+    return 'Escribiste un texto entre corchetes. No pongas datos inventados ni espacios para rellenar: si toca mandar datos de pago, pon la etiqueta y el bot los manda.';
+  }
+  if (accion) return null;
+  if (/(confirmé|procesé|apliqué|acredité|registré|recibí|ya (confirm|proces|apliqu|acredit|recib)\S*)\s[^.!?]*(pago|recarga|cr[eé]dito|comprobante|transferencia)|cr[eé]dito (ya )?(est[aá] )?actualizado|ya (qued[oó]|est[aá]) (tu|el|la) (pago|recarga|cr[eé]dito)/i.test(texto)) {
+    return 'No puedes confirmar ni procesar pagos ni recargas, ni ver comprobantes. Corrige: dile que un admin revisa su comprobante, y si falta generar el pedido usa la etiqueta que corresponde.';
+  }
+  const hablaDeDatos = /(datos (bancarios|de pago|de (la )?transferencia|para (transferir|pagar))|cuenta para transferir|clabe)/i.test(texto);
+  const losDa = /(datos[^.!?¿]{0,40}\b(son|aqu[ií])\b|aqu[ií] (tienes|est[aá]n|van) (los|tus)? ?datos|te (env[ií]o|mando|paso) (los|tus) datos)/i.test(texto);
+  if (losDa || (hablaDeDatos && !/\?\s*\S{0,6}\s*$/.test(texto))) {
+    return 'No tienes datos bancarios. Si el cliente ya dijo qué paga, cómo y a quién, responde con una frase corta y la etiqueta al final; si falta algo, pregúntalo.';
+  }
+  if (/aqu[ií] (tienes|est[aá]n?)\b[^.!?]*:\s*[.!¿]/i.test(texto)) {
+    return 'Dijiste "aquí tienes" sin mostrar nada. Si es la lista de sus cuentas usa [[mis-cuentas]]; si no, da la información en el mensaje.';
+  }
+  return null;
+}
+
+// La pregunta con la que cierra un mensaje ("¿Cuál quieres renovar? 📅"), o ''.
+export function preguntaFinal(texto) {
+  const inicio = texto.lastIndexOf('¿');
+  return inicio >= 0 && texto.indexOf('?', inicio) >= 0 ? texto.slice(inicio).trim() : '';
 }
