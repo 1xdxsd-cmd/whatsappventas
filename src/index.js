@@ -4,6 +4,7 @@ import { crearRegistroDeCasos } from './admin/comandos.js';
 import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from './admin/reemplazo.js';
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion, plataformaQueDijo } from './ia/acciones.js';
+import { avanzarRenovacion, quiereRenovar } from './ia/renovacion.js';
 import { crearAsistente } from './ia/asistente.js';
 import { esPregunta, pideAcceso, pideSusCuentas, preguntaFinal, textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
@@ -280,8 +281,22 @@ const conexion = crearConexion({
   },
 });
 
+// Lo que los admins le mandan al cliente (pago aprobado, cuenta entregada...)
+// también lo recuerda la IA, para que no diga "en cuanto revisen tu pago" si ya se aprobó.
+const conexionQueRecuerda = asistente
+  ? new Proxy(conexion, {
+      get(objetivo, nombre) {
+        if (nombre !== 'enviarTexto') return Reflect.get(objetivo, nombre);
+        return async (jid, texto) => {
+          if (!config.numerosAdmin.some((n) => String(jid).startsWith(String(n)))) asistente.anotar(jid, 'assistant', texto);
+          return objetivo.enviarTexto(jid, texto);
+        };
+      },
+    })
+  : conexion;
+
 const admin = crearAtencionAdmin({
-  conexion,
+  conexion: conexionQueRecuerda,
   pagina,
   cobros,
   casos,
@@ -414,6 +429,29 @@ async function atender(mensaje) {
       accionDeIA = anterior.accionPendiente.nombre;
       accionHecha = { ...anterior.accionPendiente, datos: [...anterior.accionPendiente.datos, elegido] };
     }
+    // Renovar lo lleva el bot paso a paso (cuál cuenta, cómo paga, a quién),
+    // para que nunca se vuelva una compra nueva ni pida números.
+    const usarRenovacion = async (paso) => {
+      if (paso.hecho) {
+        if (anterior.paso === 'pago') await cancelarPendiente(anterior, quien, 'pidió otra cosa');
+        resultado = paso.hecho;
+        accionDeIA = 'renovar';
+        accionHecha = paso.accion;
+        return 'hecho';
+      }
+      if (paso.pregunta) {
+        await conexion.enviarTexto(jid, paso.pregunta);
+        asistente.anotar(jid, 'assistant', paso.pregunta);
+        guardarEstado(jid, { ...(esperaPago ? anterior : { paso: 'menu' }), renovacion: paso.pendiente });
+        return 'pregunta';
+      }
+      return null;
+    };
+    if (!resultado && !leido.tieneArchivo && contexto.cliente && contexto.rentas.length && (anterior.renovacion || quiereRenovar(dicho))) {
+      const paso = avanzarRenovacion(anterior.renovacion ?? { nueva: true }, dicho, contexto, procesarMensaje);
+      if (!paso.nada) asistente.anotar(jid, 'user', dicho);
+      if ((await usarRenovacion(paso)) === 'pregunta') return;
+    }
     // "¿Cuáles son mis cuentas?", "quiero renovar pero no sé cuál": la lista
     // real va directo, sin depender de que el modelo use la etiqueta.
     if (!resultado && !leido.tieneArchivo && contexto.cliente && contexto.rentas.length && pideSusCuentas(dicho)) {
@@ -447,6 +485,16 @@ async function atender(mensaje) {
         guardarEstado(jid, esperaPago ? anterior : { paso: 'menu' });
         return;
       }
+      // Pidió renovar y la IA lo hizo compra: se vuelve renovación de su cuenta.
+      if (ia.accion?.nombre === 'comprar' && contexto.cliente && contexto.rentas.length && asistente.loQueDijo(jid, 3).some(quiereRenovar)) {
+        const plataforma = String(ia.accion.datos[0] ?? '').toLowerCase();
+        const indices = contexto.rentas.map((_, i) => i).filter((i) => contexto.rentas[i].platform.toLowerCase() === plataforma);
+        logger.warn({ accion: ia.accion }, 'La IA hizo compra lo que era renovación; lo cambio a renovación');
+        const paso = avanzarRenovacion({ nueva: true, indices }, [...asistente.loQueDijo(jid, 3), ia.accion.datos.slice(1).join(' ')].join(' '), contexto, procesarMensaje);
+        const uso = await usarRenovacion(paso);
+        if (uso === 'pregunta') return;
+        if (uso === 'hecho') ia.accion = null;
+      }
       // La acción se prueba antes de mandar lo que dijo la IA, para no decir
       // "¡Listo!" y luego "no pude".
       if (ia.accion) {
@@ -454,34 +502,37 @@ async function atender(mensaje) {
         if (corregida !== ia.accion) logger.warn({ pidio: ia.accion, uso: corregida }, 'La IA cambió de servicio; uso el que nombró el cliente');
         ia.accion = corregida;
       }
-      const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
-      let siguiente = esperaPago ? anterior : { paso: 'menu' };
-      if (!hecho?.error) {
-        if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
-      } else if (hecho.faltaCobrador) {
-        const pregunta = `¿A quién le haces la transferencia: ${contexto.cobradores.map((c) => `*${c.nombre}*`).join(' o ')}? 🙌`;
-        await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : pregunta);
-        asistente.anotar(jid, 'system', 'Falta a quién le paga; el cliente lo va a decir.');
-        siguiente = { paso: 'menu', accionPendiente: ia.accion };
-      } else {
-        logger.warn({ accion: ia.accion, error: hecho.error }, 'La IA pidió una acción que no se pudo hacer');
-        asistente.anotar(jid, 'system', `No se pudo hacer la acción: ${hecho.error}. Pregúntale al cliente lo que falta.`);
-        await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : 'Perdón, no pude completarlo. 😕 ¿Me confirmas qué quieres y cómo pagas?');
-      }
-      if (!hecho || hecho.error) {
-        guardarEstado(jid, siguiente);
-        if (anterior.paso === 'inicio') {
-          for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
+      // Si ya quedó como renovación, lo que dijo la IA (una compra) no se manda.
+      if (!resultado) {
+        const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
+        let siguiente = esperaPago ? anterior : { paso: 'menu' };
+        if (!hecho?.error) {
+          if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+        } else if (hecho.faltaCobrador) {
+          const pregunta = `¿A quién le haces la transferencia: ${contexto.cobradores.map((c) => `*${c.nombre}*`).join(' o ')}? 🙌`;
+          await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : pregunta);
+          asistente.anotar(jid, 'system', 'Falta a quién le paga; el cliente lo va a decir.');
+          siguiente = { paso: 'menu', accionPendiente: ia.accion };
+        } else {
+          logger.warn({ accion: ia.accion, error: hecho.error }, 'La IA pidió una acción que no se pudo hacer');
+          asistente.anotar(jid, 'system', `No se pudo hacer la acción: ${hecho.error}. Pregúntale al cliente lo que falta.`);
+          await conexion.enviarTexto(jid, ia.texto && esPregunta(ia.texto) ? ia.texto : 'Perdón, no pude completarlo. 😕 ¿Me confirmas qué quieres y cómo pagas?');
         }
-        return;
+        if (!hecho || hecho.error) {
+          guardarEstado(jid, siguiente);
+          if (anterior.paso === 'inicio') {
+            for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
+          }
+          return;
+        }
+        // Pidió otra cosa mientras debía una transferencia: ese pedido se cancela.
+        if (anterior.paso === 'pago' && ['comprar', 'renovar', 'recargar'].includes(ia.accion.nombre)) {
+          await cancelarPendiente(anterior, quien, 'pidió otra cosa');
+        }
+        resultado = hecho;
+        accionDeIA = ia.accion.nombre;
+        accionHecha = ia.accion;
       }
-      // Pidió otra cosa mientras debía una transferencia: ese pedido se cancela.
-      if (anterior.paso === 'pago' && ['comprar', 'renovar', 'recargar'].includes(ia.accion.nombre)) {
-        await cancelarPendiente(anterior, quien, 'pidió otra cosa');
-      }
-      resultado = hecho;
-      accionDeIA = ia.accion.nombre;
-      accionHecha = ia.accion;
     }
   } else if (asistente && !resultado) {
     asistente.anotar(jid, 'user', leido.texto.trim() || '(envió un archivo)');

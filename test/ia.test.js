@@ -4,7 +4,7 @@ import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
 import { ejecutarAccion, plataformaQueDijo } from '../src/ia/acciones.js';
-import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal, repararRespuesta, pideSusCuentas, pideAcceso } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas, revisarRespuesta, preguntaFinal, repararRespuesta, pideSusCuentas, pideAcceso, rentasNombradas } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
 const contexto = {
@@ -184,9 +184,9 @@ test('el asistente recuerda la conversación y lo que hace el bot', async () => 
 test('lista las cuentas del cliente con correo, tipo y fecha legible', () => {
   const texto = textoMisCuentas(contexto.rentas, SERVICIOS_BASE, '$');
   assert.match(texto, /tus cuentas activas \(1\)/);
-  assert.match(texto, /📺 \*Netflix\* \(perfil\)/);
+  assert.match(texto, /\*1\. Netflix\* \(perfil\)/);
   assert.match(texto, /📧 secreto@x\.com/);
-  assert.match(texto, /📅 Vence el 1 de diciembre de 2026/);
+  assert.match(texto, /📅 Vence el 1 de diciembre de 2026 · 🔄 \$80/);
   assert.doesNotMatch(texto, /clave/);
   assert.match(textoMisCuentas([], SERVICIOS_BASE, '$'), /No tienes cuentas activas/);
   assert.equal(fechaLegible('2026-03-05'), '5 de marzo de 2026');
@@ -281,4 +281,25 @@ test('si la IA manda datos de acceso en una compra, le pide la etiqueta correcta
   const asistente = crearAsistente({ url: 'https://ia.x.com', modelo: 'm', esperaMs: 1000, logger: { warn() {} }, fetch });
   const r = await asistente.conversar('chat', 'Uso mi crédito', contexto);
   assert.deepEqual(r.accion, { nombre: 'comprar', datos: ['netflix', 'perfil', 'credito'] });
+});
+
+test('una pregunta con dos puntos no se toma como "aquí tienes" vacío', () => {
+  const texto = '¡Perfecto! 🍿 Para renovar *nebulosa@ventasthalia.com* (Netflix perfil), dime: ¿quieres renovar la que vence el 12 o la del 18? También, ¿pagas por transferencia a Anthony o Thalia?';
+  assert.equal(revisarRespuesta({ texto, accion: null }), null);
+  assert.ok(revisarRespuesta({ texto: 'Te muestro tus cuentas: ¿cuál renuevas?', accion: null }));
+});
+
+const rentasAnthony = [
+  { id: 'a', platform: 'netflix', type: 'cuenta', email: 'correo@ventasthalia.com', endDate: '2026-12-23', price: 230 },
+  { id: 'b', platform: 'disney', type: 'cuenta', email: 'correo@ventasthalia.com', endDate: '2027-01-19', price: 180 },
+  { id: 'c', platform: 'netflix', type: 'perfil', email: 'nebulosa@ventasthalia.com', endDate: '2027-02-12', price: 85 },
+  { id: 'd', platform: 'vix', type: 'perfil', email: 'raw37@sarquizshop.com', endDate: '2026-12-18', price: 50 },
+];
+
+test('reconoce la cuenta que nombra el cliente', () => {
+  assert.deepEqual(rentasNombradas('Quiero renovar mi cuenta de nebulosa', rentasAnthony), [2]);
+  assert.deepEqual(rentasNombradas('mi perfil de netflix', rentasAnthony), [2]);
+  assert.deepEqual(rentasNombradas('la de netflix', rentasAnthony), [0, 2]);
+  assert.deepEqual(rentasNombradas('la 4', rentasAnthony), [3]);
+  assert.deepEqual(rentasNombradas('quiero renovar', rentasAnthony), []);
 });

@@ -33,15 +33,56 @@ const tipoLargo = (tipo) => (tipo === 'cuenta' ? 'cuenta completa' : 'perfil');
  */
 export function textoMisCuentas(rentas, servicios, moneda) {
   if (rentas.length === 0) return 'No tienes cuentas activas por ahora. 🙂';
-  const lineas = rentas.map((r) =>
-    [
-      `📺 *${nombrePlataforma(r.platform)}* (${tipoLargo(r.type)})`,
-      ...(r.email ? [`📧 ${r.email}`] : []),
-      `📅 Vence el ${fechaLegible(r.endDate)} a las 8 pm`,
-      `🔄 Renovar: ${formatearPrecio(precioDeRenovacion(r, servicios), moneda)}`,
-    ].join('\n'),
-  );
-  return [`Estas son tus cuentas activas (${rentas.length}):`, ...lineas].join('\n\n');
+  return [`Estas son tus cuentas activas (${rentas.length}): 📺`, ...rentas.map((r, i) => lineaDeCuenta(r, i, servicios, moneda))].join('\n\n');
+}
+
+// "Netflix", "ViX", "Fox": el nombre del catálogo de la página si no está en la lista fija.
+export function nombreDe(platform, servicios = []) {
+  const delCatalogo = servicios.find((s) => s.platform === platform)?.name;
+  const nombre = nombrePlataforma(platform, delCatalogo);
+  return nombre === platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : nombre;
+}
+
+function lineaDeCuenta(r, i, servicios, moneda) {
+  const correo = r.email ? `\n   📧 ${r.email}` : '';
+  return `*${i + 1}. ${nombreDe(r.platform, servicios)}* (${tipoLargo(r.type)})${correo}\n   📅 Vence el ${fechaLegible(r.endDate)} · 🔄 ${formatearPrecio(precioDeRenovacion(r, servicios), moneda)}`;
+}
+
+// Solo las cuentas que puede querer renovar, para que elija por nombre o correo.
+// `indices`: posiciones en la lista completa, para que "la 3" sea siempre la misma cuenta.
+export function textoElegirCuenta(rentas, indices, servicios, moneda) {
+  return ['¿Cuál quieres renovar? 🔄 Dime el servicio o el correo:', ...indices.map((i) => lineaDeCuenta(rentas[i], i, servicios, moneda))].join('\n\n');
+}
+
+/**
+ * La renta a la que se refiere el cliente ("mi perfil de nebulosa de Netflix"):
+ * por la parte del correo antes de la @, por la plataforma o por "la 2".
+ * Devuelve sus posiciones (desde 0) que coinciden.
+ */
+export function rentasNombradas(texto, rentas, servicios = []) {
+  const t = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const indices = rentas.map((_, i) => i);
+  const porCorreo = indices.filter((i) => {
+    const usuario = String(rentas[i].email ?? '').split('@')[0].toLowerCase();
+    return usuario.length >= 4 && t.includes(usuario);
+  });
+  const porPlataforma = (lista) =>
+    lista.filter((i) => {
+      const r = rentas[i];
+      return [r.platform, nombreDe(r.platform, servicios)].some((n) => n && n.length >= 3 && t.includes(n.toLowerCase().replace(/\+/g, '')));
+    });
+  const porTipo = (lista) => {
+    const tipo = /\bperfil/.test(t) ? 'perfil' : /complet|cuenta entera/.test(t) ? 'cuenta' : null;
+    return tipo ? lista.filter((i) => rentas[i].type === tipo) : lista;
+  };
+  if (porCorreo.length) {
+    const finas = porTipo(porPlataforma(porCorreo).length ? porPlataforma(porCorreo) : porCorreo);
+    return finas.length ? finas : porCorreo;
+  }
+  const numero = t.match(/\b(?:la|cuenta|numero|#)\s*(\d{1,2})\b/);
+  if (numero && rentas[Number(numero[1]) - 1]) return [Number(numero[1]) - 1];
+  const plataforma = porPlataforma(indices);
+  return plataforma.length ? porTipo(plataforma) : [];
 }
 
 export function textoDatosDeAcceso(renta, cuenta) {
@@ -89,7 +130,7 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'Usa solo los datos de abajo. Si no sabes algo, no lo inventes.',
     'Escribe con buena ortografía, en español de México y de tú ("lo renuevo", "te lo cobro"). Nunca le digas al cliente las claves internas ([clave: ...]) ni le menciones etiquetas.',
     'Son las cuentas del propio cliente: puedes decirle el correo y la fecha de cada una. Las contraseñas no las tienes: si las pide, usa [[datos:N]] y el bot se las manda. Nunca inventes datos. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
-    'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información y pregunta lo que falte. No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
+    'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números de cuenta: pregúntale por el servicio o el correo. Las fechas siempre completas ("12 de febrero de 2027"). No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
     'Si pregunta qué cuentas tiene, sus fechas o sus correos, usa [[mis-cuentas]] y el bot le manda la lista exacta (no la cuentes tú).',
     'Tú NO tienes los datos bancarios: el bot los manda solo cuando pones la etiqueta. Nunca escribas datos de pago, ni textos entre corchetes como [datos], ni digas que los vas a mandar sin la etiqueta.',
     'Tú no ves fotos ni comprobantes y no puedes confirmar pagos ni cargar crédito: nunca digas que ya confirmaste, procesaste o aplicaste un pago o una recarga. Lo aprueba la persona a la que le transfirió (por ejemplo Anthony o Thalia) al revisar el comprobante: dile que quedó en revisión con esa persona.',
@@ -109,7 +150,8 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'COMPRAR es una cuenta NUEVA (de PLANES); RENOVAR es extender una de las cuentas que ya tiene el cliente (Cuenta N). Si dice "comprar", "una nueva" u "otra", es comprar: no hables de renovar. Si solo nombra una plataforma ("Vix"), pregúntale si quiere comprar una nueva' + (rentas.length ? ' o renovar una que ya tiene' : '') + '.',
     'EJEMPLOS:',
     'cliente: "renuevo la 2 por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Va! 🙌 Te mando los datos para renovar tu cuenta. [[renovar:2:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
-    'cliente: "uso mi crédito" (para un perfil de ViX) → tú: "¡Va! ✅ Lo pago con tu crédito. [[comprar:vix:perfil:credito]]" (el bot cobra y entrega solo)',
+    'cliente: "uso mi crédito" (para COMPRAR un perfil nuevo de ViX) → tú: "¡Va! ✅ Lo pago con tu crédito. [[comprar:vix:perfil:credito]]" (el bot cobra y entrega solo)',
+    'cliente: "uso mi crédito" (para RENOVAR su Cuenta 3) → tú: "¡Va! ✅ La renuevo con tu crédito. [[renovar:3:credito]]". Una renovación NUNCA es [[comprar:...]].',
     'cliente: "quiero un perfil de netflix, pago por transferencia' + (variosCobradores ? ` a ${cobradores[0].nombre}` : '') + '" → tú: "¡Perfecto! 🍿 Te mando los datos para tu perfil de Netflix. [[comprar:netflix:perfil:transferencia' + (variosCobradores ? `:${cobradores[0].nombre}` : '') + ']]"',
     '',
     'PLANES:',
@@ -176,6 +218,9 @@ export function revisarRespuesta({ texto, accion }, dicho = '') {
   if (losDa || (hablaDeDatos && !texto.includes('?'))) {
     return 'No tienes datos bancarios. Si el cliente ya dijo qué paga, cómo y a quién, responde con una frase corta y la etiqueta al final; si falta algo, pregúntalo.';
   }
+  if (/n[uú]mero de (la |tu )?cuenta|\(de 1 a \d+\)|\bdel 1 al \d+/i.test(texto)) {
+    return 'No le pidas números de cuenta: pregúntale qué servicio o qué correo quiere, o usa [[mis-cuentas]] para que vea la lista.';
+  }
   if (anunciaSinMostrar(texto)) {
     return 'Dijiste "aquí tienes" sin mostrar nada. Si es la lista de sus cuentas usa [[mis-cuentas]]; si no, da la información en el mensaje.';
   }
@@ -189,7 +234,10 @@ export function preguntaFinal(texto) {
 }
 
 // "Aquí tienes tus cuentas: ." / "Te muestro tus cuentas para que veas cuál es: ."
-const anunciaSinMostrar = (texto) => /:\s*([.!¿]|$)/.test(texto) || /aqu[ií] (tienes|est[aá]n?)\b[^.!?]*:\s*[.!¿]/i.test(texto);
+// "dime: ¿quieres...?" sí es válido: los dos puntos antes de una pregunta solo
+// cuentan si anunciaba algo ("te muestro tus cuentas: ¿cuál...?").
+const anunciaSinMostrar = (texto) =>
+  /:\s*[.!]/.test(texto) || /:\s*$/.test(texto) || /(aqu[ií]|muestro|lista|est[aá]s? son|est[aá]n)[^.!?¿:]*:\s*¿/i.test(texto);
 
 // El modelo anunció la lista de cuentas sin la etiqueta: se manda la lista real.
 export function repararRespuesta(resultado) {
