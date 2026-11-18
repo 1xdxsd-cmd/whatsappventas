@@ -4,7 +4,7 @@ import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
 import { ejecutarAccion } from '../src/ia/acciones.js';
-import { aFormatoWhatsApp, instrucciones, interpretarRespuesta } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, fechaLegible, instrucciones, interpretarRespuesta, textoDatosDeAcceso, textoMisCuentas } from '../src/ia/conocimiento.js';
 import { procesarMensaje } from '../src/bot/conversacion.js';
 
 const contexto = {
@@ -65,16 +65,18 @@ test('pide que el modelo se quede cargado y lo precarga al arrancar', async () =
 });
 
 
-test('las instrucciones llevan precios con su clave, cuentas numeradas y conocimiento, sin accesos', () => {
+test('las instrucciones llevan precios con su clave, cuentas numeradas con correo y conocimiento, sin contraseñas', () => {
   const texto = instrucciones({ ...contexto, cliente: { ...contexto.cliente, usuario: 'laura1' } }, 'Horario: 10 am a 10 pm');
   assert.match(texto, /Streaming Thalia/);
   assert.match(texto, /Netflix \[clave: netflix\]: perfil \$80 al mes, cuenta \$200 al mes/);
   assert.match(texto, /Laura\. Usuario de la página: laura1\. Crédito disponible: \$120/);
-  assert.match(texto, /Cuenta 1: Netflix \(perfil\), vence el 2026-12-01 a las 8 pm, renovarla cuesta \$80/);
+  assert.match(texto, /Cuenta 1: Netflix \(perfil, correo secreto@x\.com\), vence el 1 de diciembre de 2026 a las 8 pm, renovarla cuesta \$80/);
   assert.match(texto, /Horario: 10 am a 10 pm/);
   assert.match(texto, /Es el primer mensaje: saluda una sola vez/);
   assert.match(texto, /Nunca muestres menús ni listas numeradas/);
-  assert.doesNotMatch(texto, /secreto@x\.com/);
+  assert.doesNotMatch(texto, /clave'|Contraseña: clave/);
+  assert.match(texto, /\[\[mis-cuentas\]\]/);
+  assert.match(texto, /emojis/);
   const despues = instrucciones({ ...contexto, pendientes: ['Pedido esperando confirmación del pago: Netflix'], cobradores: [{ nombre: 'Anthony' }, { nombre: 'Thalia' }] }, '', { conversacionEnCurso: true });
   assert.match(despues, /NO saludes/);
   assert.match(despues, /\[\[comprar:CLAVE:TIPO:PAGO:NOMBRE\]\]/);
@@ -152,4 +154,26 @@ test('el asistente recuerda la conversación y lo que hace el bot', async () => 
   assert.match(fetch.pedidos[0].cuerpo.messages[0].content, /saluda una sola vez/);
   assert.equal((await asistente.conversar('chat', 'pagué y no me llega', contexto)).accion.nombre, 'asesor');
   assert.deepEqual(asistente.loQueDijo('chat', 2), ['¿cuánto cuesta netflix?', 'pagué y no me llega']);
+});
+
+test('lista las cuentas del cliente con correo, tipo y fecha legible', () => {
+  const texto = textoMisCuentas(contexto.rentas, SERVICIOS_BASE, '$');
+  assert.match(texto, /tus cuentas activas \(1\)/);
+  assert.match(texto, /📺 \*Netflix\* \(perfil\)/);
+  assert.match(texto, /📧 secreto@x\.com/);
+  assert.match(texto, /📅 Vence el 1 de diciembre de 2026/);
+  assert.doesNotMatch(texto, /clave/);
+  assert.match(textoMisCuentas([], SERVICIOS_BASE, '$'), /No tienes cuentas activas/);
+  assert.equal(fechaLegible('2026-03-05'), '5 de marzo de 2026');
+});
+
+test('datos de acceso: correo y contraseña de la cuenta de la página', () => {
+  const texto = textoDatosDeAcceso(contexto.rentas[0], { email: 'secreto@x.com', password: 'Abc123' });
+  assert.match(texto, /📧 Correo: secreto@x\.com/);
+  assert.match(texto, /🔑 Contraseña: Abc123/);
+});
+
+test('reconoce las etiquetas de mis cuentas y datos de acceso', () => {
+  assert.deepEqual(interpretarRespuesta('Claro 😊 [[mis-cuentas]]').accion, { nombre: 'mis-cuentas', datos: [] });
+  assert.deepEqual(interpretarRespuesta('Va, te los mando 🔑 [[datos:2]]').accion, { nombre: 'datos', datos: ['2'] });
 });

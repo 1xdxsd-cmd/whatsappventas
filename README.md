@@ -40,11 +40,13 @@ Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.c
 | `[[reportar:1:pide código]]` | Guarda el reporte de la cuenta 1 |
 | `[[recargar:300]]` | Recarga de crédito por transferencia |
 | `[[clave]]` | Le pide la contraseña nueva de la página |
+| `[[mis-cuentas]]` | Le manda sus cuentas activas: servicio, tipo, correo y fecha ("1 de diciembre de 2026") |
+| `[[datos:1]]` | Le manda el correo y la contraseña de su cuenta 1 (de la página, solo al número registrado y nunca de cuentas suspendidas) |
 | `[[asesor]]` | Lo pasa con un asesor; el aviso lleva lo que contó |
 
 Con varias personas que cobran (`PAGO_N_...`), la IA pregunta a quién pagar y lo agrega al final (`...:transferencia:Thalia`). Las etiquetas pasan por la misma conversación del menú, así que los cobros, pedidos y reportes siguen las mismas reglas. Si la IA solo ofrece algo ("¿te paso los datos?") no se hace nada hasta que el cliente confirme. El comprobante, el motivo del reporte, la contraseña nueva y el chat con asesor funcionan igual que siempre.
 
-- La IA sabe solo datos reales: los planes de la página, el nombre, usuario, crédito y cuentas activas del cliente (sin correos ni contraseñas), lo que tiene en curso (pago en revisión, reporte abierto) y lo que escribas en `conocimiento.md` (copia `conocimiento.ejemplo.md`). Se lee en cada mensaje.
+- La IA sabe solo datos reales: los planes de la página, el nombre, usuario, crédito y cuentas activas del cliente con su correo y fecha (las contraseñas no: esas las manda el bot con `[[datos:N]]`), lo que tiene en curso (pago en revisión, reporte abierto) y lo que escribas en `conocimiento.md` (copia `conocimiento.ejemplo.md`). Se lee en cada mensaje.
 - Recuerda los últimos 12 mensajes de cada chat y no vuelve a saludar mientras la conversación sigue (se olvida tras 6 horas sin escribir o al reiniciar el bot).
 - Las negritas salen en formato de WhatsApp (`*así*`).
 - **El menú de números es solo el respaldo**: si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú y no vuelve a intentar con la IA durante un minuto.

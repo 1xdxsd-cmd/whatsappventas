@@ -24,14 +24,54 @@ function precioDeRenovacion(renta, servicios) {
 }
 
 // Nunca se le pasan correos ni contraseñas de las cuentas: la IA no entrega accesos.
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+// 2026-12-23 -> 23 de diciembre de 2026
+export function fechaLegible(fecha) {
+  const [anio, mes, dia] = String(fecha).slice(0, 10).split('-').map(Number);
+  if (!anio || !mes || !dia) return String(fecha);
+  return `${dia} de ${MESES[mes - 1]} de ${anio}`;
+}
+
+const tipoLargo = (tipo) => (tipo === 'cuenta' ? 'cuenta completa' : 'perfil');
+
+/**
+ * La lista de cuentas del cliente tal como se le manda por WhatsApp
+ * ([[mis-cuentas]]): exacta, sin depender de que la IA cuente bien.
+ */
+export function textoMisCuentas(rentas, servicios, moneda) {
+  if (rentas.length === 0) return 'No tienes cuentas activas por ahora. 🙂';
+  const lineas = rentas.map((r) =>
+    [
+      `📺 *${nombrePlataforma(r.platform)}* (${tipoLargo(r.type)})`,
+      ...(r.email ? [`📧 ${r.email}`] : []),
+      `📅 Vence el ${fechaLegible(r.endDate)} a las 8 pm`,
+      `🔄 Renovar: ${formatearPrecio(precioDeRenovacion(r, servicios), moneda)}`,
+    ].join('\n'),
+  );
+  return [`Estas son tus cuentas activas (${rentas.length}):`, ...lineas].join('\n\n');
+}
+
+export function textoDatosDeAcceso(renta, cuenta) {
+  return [
+    `📺 *${nombrePlataforma(renta.platform)}* (${tipoLargo(renta.type)})`,
+    `📧 Correo: ${cuenta.email || renta.email || '(sin correo)'}`,
+    `🔑 Contraseña: ${cuenta.password || '(pídela a un asesor)'}`,
+    `📅 Vence el ${fechaLegible(renta.endDate)} a las 8 pm`,
+    '',
+    'Por seguridad, no compartas estos datos. 🔒',
+  ].join('\n');
+}
+
 function textoCliente(cliente, rentas, servicios, moneda) {
   if (!cliente) return 'No está registrado en la página (o no se pudo consultar): no puede renovar, reportar, recargar ni usar crédito; para eso, asesor.';
   const usuario = cliente.usuario ? ` Usuario de la página: ${cliente.usuario}.` : '';
   const lineas = [`Nombre: ${cliente.nombre}.${usuario} Crédito disponible: ${formatearPrecio(cliente.saldo ?? 0, moneda)}.`];
   if (rentas.length === 0) lineas.push('No tiene cuentas activas.');
   rentas.forEach((r, i) => {
+    const correo = r.email ? `, correo ${r.email}` : '';
     lineas.push(
-      `- Cuenta ${i + 1}: ${nombrePlataforma(r.platform)} (${nombreTipo(r.type).toLowerCase()}), vence el ${String(r.endDate).slice(0, 10)} a las 8 pm, renovarla cuesta ${formatearPrecio(precioDeRenovacion(r, servicios), moneda)}`,
+      `- Cuenta ${i + 1}: ${nombrePlataforma(r.platform)} (${tipoLargo(r.type)}${correo}), vence el ${fechaLegible(r.endDate)} a las 8 pm, renovarla cuesta ${formatearPrecio(precioDeRenovacion(r, servicios), moneda)}`,
     );
   });
   return lineas.join('\n');
@@ -48,13 +88,14 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
   const cobrador = variosCobradores ? ':NOMBRE' : '';
   return [
     `Eres el asistente de WhatsApp de "${negocio}", que vende cuentas y perfiles de streaming en México (precios en pesos mexicanos).`,
-    'Responde en español, amable y breve (máximo 3 oraciones), como en un chat de WhatsApp. Para negritas usa un solo asterisco: *así*.',
+    'Responde en español, amable, cálido y breve (máximo 3 oraciones), como en un chat de WhatsApp, con 1 a 3 emojis que vengan al caso (📺 🍿 ✅ 📅 💳 🙌). Para negritas usa un solo asterisco: *así*.',
     conversacionEnCurso
       ? 'Ya están platicando: NO saludes ni repitas el nombre del cliente; sigue la conversación.'
       : 'Es el primer mensaje: saluda una sola vez.',
     'Usa solo los datos de abajo. Si no sabes algo, no lo inventes.',
-    'No tienes correos ni contraseñas de cuentas: nunca los des ni los inventes. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
-    'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información (precios, sus cuentas, vencimientos) y pregunta lo que falte.',
+    'Son las cuentas del propio cliente: puedes decirle el correo y la fecha de cada una. Las contraseñas no las tienes: si las pide, usa [[datos:N]] y el bot se las manda. Nunca inventes datos. No puedes confirmar pagos, hacer descuentos, cambiar precios ni prometer fechas.',
+    'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información y pregunta lo que falte. No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
+    'Si pregunta qué cuentas tiene, sus fechas o sus correos, usa [[mis-cuentas]] y el bot le manda la lista exacta (no la cuentes tú).',
     '',
     'ACCIONES: cuando ya tengas todos los datos y el cliente lo confirmó, termina tu mensaje con UNA etiqueta y el bot la hace (manda los datos de pago, guarda el reporte, etc.). No termines con pregunta si usas etiqueta.',
     `- Comprar: [[comprar:CLAVE:TIPO:PAGO${cobrador}]] (CLAVE de PLANES, TIPO perfil o cuenta, PAGO transferencia o credito).`,
@@ -62,6 +103,8 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     '- Reportar una cuenta que no funciona: [[reportar:N:qué le pasa]].',
     `- Recargar crédito: [[recargar:MONTO${cobrador}]] (de ${formatearPrecio(RECARGA_MINIMA, moneda)} en adelante, por transferencia).`,
     '- Cambiar la contraseña de la página: [[clave]] (el bot le pide la nueva).',
+    '- Mostrarle sus cuentas con correo, tipo y vencimiento: [[mis-cuentas]].',
+    '- Mandarle el correo y la contraseña de una de sus cuentas: [[datos:N]].',
     '- Pasarlo con una persona: [[asesor]] (pagó y no se le aplicó, un problema que no puedes resolver, o lo pide). Antes intenta entender qué pasa con una pregunta corta.',
     'Pagar con credito solo si su crédito alcanza y el cliente dijo claramente que quiere usar su crédito; si no, transferencia.',
     ...(variosCobradores ? [`Por transferencia se le puede pagar a: ${cobradores.map((c) => c.nombre).join(', ')}. Pregúntale a quién antes de usar la etiqueta y pon ese NOMBRE.`] : []),
@@ -87,7 +130,7 @@ export function aFormatoWhatsApp(texto) {
     .replace(/\n{3,}/g, '\n\n');
 }
 
-const ACCIONES = ['comprar', 'renovar', 'reportar', 'recargar', 'clave', 'asesor'];
+const ACCIONES = ['comprar', 'renovar', 'reportar', 'recargar', 'clave', 'asesor', 'mis-cuentas', 'datos'];
 
 /**
  * Separa la respuesta para el cliente de la etiqueta de acción.

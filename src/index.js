@@ -5,6 +5,7 @@ import { lugaresNecesarios, opcionesDeReemplazo, textoOpcionesDeReemplazo } from
 import { procesarMensaje, recordatorioAlEscribir, textoCambioDeClave, textoCobroConCredito } from './bot/conversacion.js';
 import { ejecutarAccion } from './ia/acciones.js';
 import { crearAsistente } from './ia/asistente.js';
+import { textoDatosDeAcceso, textoMisCuentas } from './ia/conocimiento.js';
 import { SERVICIOS_BASE } from './catalogo/servicios.js';
 import { config } from './config.js';
 import { crearClientePagina } from './pagina/cliente.js';
@@ -84,6 +85,22 @@ async function cargarContexto(telefono, jid) {
 // Ejecuta en la página lo que pidió la conversación. Devuelve el estado con
 // los datos que hay que recordar, los mensajes que dependen del resultado
 // (por ejemplo, el cobro con crédito), los avisos extra y el caso de admin.
+// Correo y contraseña de una cuenta del cliente, como los da su página
+// (solo al número registrado; nunca de cuentas suspendidas).
+async function datosDeAcceso(contexto, numero) {
+  if (!contexto.cliente) return 'Para darte los datos de acceso necesito que tu número esté registrado. Escribe *asesor* y te ayudamos. 🙂';
+  const renta = contexto.rentas[Number(numero) - 1];
+  if (!renta) return textoMisCuentas(contexto.rentas, contexto.servicios, config.moneda);
+  let cuenta = null;
+  try {
+    cuenta = (await pagina.cuentas()).find((c) => c.id === renta.accountId && !c.suspended) ?? null;
+  } catch (error) {
+    logger.warn({ err: error }, 'No se pudieron leer las cuentas para dar los datos de acceso');
+  }
+  if (!cuenta) return 'No pude consultar los datos de esa cuenta en este momento. 😕 Escribe *asesor* y te los pasamos.';
+  return textoDatosDeAcceso(renta, cuenta);
+}
+
 async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nombre }) {
   const respuestas = [];
   const avisos = [];
@@ -320,6 +337,17 @@ async function atender(mensaje) {
     const ia = await asistente.conversar(jid, leido.texto.trim(), contexto);
     if (ia) {
       if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+      // Mostrar cuentas o pasar datos de acceso no son flujos del menú: se
+      // contestan aquí, con los datos reales de la página.
+      if (ia.accion?.nombre === 'mis-cuentas' || ia.accion?.nombre === 'datos') {
+        const texto = ia.accion.nombre === 'mis-cuentas'
+          ? textoMisCuentas(contexto.rentas, contexto.servicios, config.moneda)
+          : await datosDeAcceso(contexto, ia.accion.datos[0]);
+        await conexion.enviarTexto(jid, texto);
+        asistente.anotar(jid, 'assistant', ia.accion.nombre === 'datos' ? 'Le envié los datos de acceso de esa cuenta.' : texto);
+        guardarEstado(jid, { paso: 'menu' });
+        return;
+      }
       const hecho = ia.accion ? ejecutarAccion(ia.accion, contexto, procesarMensaje) : null;
       if (hecho?.error) {
         logger.warn({ accion: ia.accion, error: hecho.error }, 'La IA pidió una acción que no se pudo hacer');
