@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { instrucciones, interpretarRespuesta } from './conocimiento.js';
 
-const MENSAJES_RECORDADOS = 8; // con 4096 de contexto caben pocos mensajes además de las instrucciones
-const OLVIDAR_TRAS = 2 * 3600 * 1000; // una conversación nueva tras 2 horas sin escribir
+const MENSAJES_RECORDADOS = 12; // con 4096 de contexto caben pocos mensajes además de las instrucciones
+const LARGO_RECORDADO = 500; // los mensajes largos del bot (listas) se recortan en la memoria
+const OLVIDAR_TRAS = 6 * 3600 * 1000; // una conversación nueva tras 6 horas sin escribir
 const PAUSA_TRAS_FALLA = 60_000; // si Ollama no responde, se usa el menú de números un minuto
 // Ollama descarga el modelo de la tarjeta de video tras 5 minutos sin uso, y
 // volver a cargarlo tarda; así se queda cargado todo el día.
@@ -35,15 +36,20 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
   }
 
   function recordar(chat, ...mensajes) {
-    const todos = [...historial(chat), ...mensajes].slice(-MENSAJES_RECORDADOS);
+    const recortados = mensajes.map((m) => ({ ...m, content: String(m.content).slice(0, LARGO_RECORDADO) }));
+    const todos = [...historial(chat), ...recortados].slice(-MENSAJES_RECORDADOS);
     historiales.set(chat, { mensajes: todos, ultimo: ahora() });
   }
 
-  async function conversar(chat, texto, contexto) {
+  /**
+   * @param {string} paso el paso del bot en que está el cliente (para que la IA sepa qué lista ve)
+   */
+  async function conversar(chat, texto, contexto, paso = 'menu') {
     if (ahora() < pausadoHasta) return null;
+    const anteriores = historial(chat);
     const mensajes = [
-      { role: 'system', content: instrucciones(contexto, await leerConocimiento()) },
-      ...historial(chat),
+      { role: 'system', content: instrucciones(contexto, await leerConocimiento(), { paso, conversacionEnCurso: anteriores.length > 0 }) },
+      ...anteriores,
       { role: 'user', content: texto },
     ];
     const inicio = ahora();
@@ -67,7 +73,7 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
       const datos = await respuesta.json();
       const resultado = interpretarRespuesta(datos.message?.content);
       if (!resultado.texto && resultado.opcion === null) throw new Error('Respuesta vacía');
-      recordar(chat, { role: 'user', content: texto }, { role: 'assistant', content: datos.message.content });
+      recordar(chat, { role: 'user', content: texto }, { role: 'assistant', content: resultado.texto });
       return resultado;
     } catch (error) {
       pausadoHasta = ahora() + PAUSA_TRAS_FALLA;
@@ -100,7 +106,14 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
   return {
     conversar,
     precalentar,
-    // Al volver al menú con "menu", la siguiente conversación empieza de cero.
-    olvidar: (chat) => historiales.delete(chat),
+    // Lo que el bot y el cliente se dicen sin la IA (listas, números elegidos,
+    // confirmaciones) también entra a la memoria, para que la IA sepa qué ve el cliente.
+    anotar: (chat, role, content) => recordar(chat, { role, content }),
+    // Los últimos mensajes del cliente, para que el asesor sepa qué pasó.
+    loQueDijo: (chat, cuantos = 3) =>
+      historial(chat)
+        .filter((m) => m.role === 'user')
+        .slice(-cuantos)
+        .map((m) => m.content),
   };
 }

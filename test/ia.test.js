@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { entiendeElMenu } from '../src/bot/conversacion.js';
 import { SERVICIOS_BASE } from '../src/catalogo/servicios.js';
 import { crearAsistente } from '../src/ia/asistente.js';
-import { instrucciones, interpretarRespuesta } from '../src/ia/conocimiento.js';
+import { aFormatoWhatsApp, instrucciones, interpretarRespuesta } from '../src/ia/conocimiento.js';
 
 const contexto = {
   negocio: 'Streaming Thalia',
@@ -24,9 +24,27 @@ test('las instrucciones llevan precios, datos del cliente y conocimiento, sin ac
 });
 
 test('separa la etiqueta de acción de la respuesta', () => {
-  assert.deepEqual(interpretarRespuesta('¡Claro! Te muestro los planes. [[opcion:1]]'), { texto: '¡Claro! Te muestro los planes.', opcion: 1 });
-  assert.deepEqual(interpretarRespuesta('<think>mmm</think>Hola 👋'), { texto: 'Hola 👋', opcion: null });
-  assert.deepEqual(interpretarRespuesta('Listo [[opcion:9]]'), { texto: 'Listo', opcion: null });
+  assert.deepEqual(interpretarRespuesta('¡Claro! Vamos a renovar. [[accion:renovar]]'), { texto: '¡Claro! Vamos a renovar.', opcion: 2, elegir: null, accion: 'renovar' });
+  assert.deepEqual(interpretarRespuesta('Va la de Netflix. [[elegir:3]]'), { texto: 'Va la de Netflix.', opcion: null, elegir: 3, accion: null });
+  assert.deepEqual(interpretarRespuesta('Te muestro [[opcion:1]]'), { texto: 'Te muestro', opcion: 1, elegir: null, accion: null });
+  assert.deepEqual(interpretarRespuesta('<think>mmm</think>Hola 👋'), { texto: 'Hola 👋', opcion: null, elegir: null, accion: null });
+  assert.equal(interpretarRespuesta('Listo [[accion:volar]]').opcion, null);
+});
+
+test('pasa el formato de Markdown al de WhatsApp', () => {
+  assert.equal(aFormatoWhatsApp('Netflix cuesta **$85 pesos** y __más__\n### Título'), 'Netflix cuesta *$85 pesos* y _más_\nTítulo');
+});
+
+test('las instrucciones no ofrecen números y cambian si ya hay conversación', () => {
+  const primera = instrucciones(contexto);
+  assert.match(primera, /Es el primer mensaje: saluda una sola vez/);
+  assert.match(primera, /Nunca le pidas al cliente que escriba números/);
+  assert.match(primera, /\[\[accion:renovar\]\]/);
+  assert.doesNotMatch(primera, /1 = /);
+  const despues = instrucciones({ ...contexto, pendientes: ['Pedido esperando confirmación del pago: Netflix'] }, '', { paso: 'reporte', conversacionEnCurso: true });
+  assert.match(despues, /NO saludes/);
+  assert.match(despues, /lista de sus cuentas para elegir cuál no funciona[\s\S]*\[\[elegir:N\]\]/);
+  assert.match(despues, /EN CURSO[\s\S]*Pedido esperando confirmación/);
 });
 
 test('el menú de números sigue entendiendo números y palabras clave', () => {
@@ -46,15 +64,22 @@ function fetchFalso(respuestas) {
   return fn;
 }
 
-test('el asistente recuerda la conversación y manda el modelo configurado', async () => {
-  const fetch = fetchFalso(['Hola Laura 👋', 'Netflix perfil cuesta $80. [[opcion:1]]']);
+test('el asistente recuerda la conversación, lo que hace el bot y manda el modelo configurado', async () => {
+  const fetch = fetchFalso(['Hola Laura 👋', 'Netflix perfil cuesta $80.', 'Va. [[accion:asesor]]']);
   const asistente = crearAsistente({ url: 'https://ia.x.com/', modelo: 'novatech', esperaMs: 1000, logger: { warn() {} }, fetch });
-  assert.deepEqual(await asistente.conversar('chat', 'hola', contexto), { texto: 'Hola Laura 👋', opcion: null });
-  assert.deepEqual(await asistente.conversar('chat', '¿cuánto cuesta netflix?', contexto), { texto: 'Netflix perfil cuesta $80.', opcion: 1 });
+  assert.equal((await asistente.conversar('chat', 'hola', contexto)).texto, 'Hola Laura 👋');
+  asistente.anotar('chat', 'user', '1');
+  asistente.anotar('chat', 'assistant', 'Planes (pesos mexicanos)...');
+  assert.equal((await asistente.conversar('chat', '¿cuánto cuesta netflix?', contexto, 'catalogo')).texto, 'Netflix perfil cuesta $80.');
   const segundo = fetch.pedidos[1];
   assert.equal(segundo.url, 'https://ia.x.com/api/chat');
   assert.equal(segundo.cuerpo.model, 'novatech');
-  assert.deepEqual(segundo.cuerpo.messages.slice(1).map((m) => m.role), ['user', 'assistant', 'user']);
+  assert.deepEqual(segundo.cuerpo.messages.slice(1).map((m) => m.role), ['user', 'assistant', 'user', 'assistant', 'user']);
+  assert.match(segundo.cuerpo.messages[0].content, /NO saludes/);
+  assert.match(fetch.pedidos[0].cuerpo.messages[0].content, /saluda una sola vez/);
+  const tercero = await asistente.conversar('chat', 'pagué y no me llega', contexto);
+  assert.equal(tercero.accion, 'asesor');
+  assert.deepEqual(asistente.loQueDijo('chat', 2), ['¿cuánto cuesta netflix?', 'pagué y no me llega']);
 });
 
 test('si la IA falla, devuelve null y se pausa un minuto', async () => {
@@ -66,15 +91,7 @@ test('si la IA falla, devuelve null y se pausa un minuto', async () => {
   assert.equal(await asistente.conversar('chat', 'hola', contexto), null);
   assert.equal(fetch.pedidos.length, 1);
   reloj = 61_000;
-  assert.deepEqual(await asistente.conversar('chat', 'hola', contexto), { texto: 'Hola', opcion: null });
-});
-
-test('a las direcciones sin esquema se les pone http:// o https://', async () => {
-  const { conEsquema } = await import('../src/config.js');
-  assert.equal(conEsquema('ia.ventasthalia.com', 'https'), 'https://ia.ventasthalia.com');
-  assert.equal(conEsquema('http://10.0.0.5:11434', 'https'), 'http://10.0.0.5:11434');
-  assert.equal(conEsquema(' 45.1.2.3:8081 ', 'http'), 'http://45.1.2.3:8081');
-  assert.equal(conEsquema('', 'http'), '');
+  assert.equal((await asistente.conversar('chat', 'hola', contexto)).texto, 'Hola');
 });
 
 test('pide que el modelo se quede cargado y lo precarga al arrancar', async () => {

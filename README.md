@@ -35,7 +35,10 @@ Con `IA_URL` (la dirección de tu Ollama, por ejemplo `https://ia.ventasthalia.c
 
 - La IA sabe solo datos reales: los planes y precios de la página, el nombre, crédito y cuentas activas del cliente (sin correos ni contraseñas) y lo que escribas en `conocimiento.md` (horarios, garantía, reglas; copia `conocimiento.ejemplo.md`). Se lee en cada mensaje, así que puedes cambiarlo sin reiniciar.
 - Si el cliente quiere hacer algo (comprar, renovar, reportar, asesor, recargar...), la IA lo pasa a la opción del menú y desde ahí sigue el flujo de siempre. La IA nunca entrega cuentas, confirma pagos ni cambia contraseñas.
-- Recuerda los últimos 8 mensajes de cada chat (se olvida tras 2 horas sin escribir o cuando el cliente escribe `menu`).
+- No le pide números al cliente: entiende lo que quiere e inicia la acción (`[[accion:renovar]]`) o elige de la lista que el cliente está viendo (`[[elegir:2]]`). Solo el pago con crédito se elige escribiendo el número, para que la IA nunca cobre por error.
+- Recuerda los últimos 12 mensajes de cada chat, incluidos los del menú, y no vuelve a saludar mientras la conversación sigue (se olvida tras 6 horas sin escribir). También sabe qué tiene el cliente en curso (pago en revisión, reporte abierto) para contestarle.
+- Antes de pasar con un asesor intenta entender el problema; el aviso al asesor incluye lo último que contó el cliente.
+- Las negritas salen en formato de WhatsApp (`*así*`).
 - Si Ollama no responde en `IA_ESPERA_SEGUNDOS` (30 por defecto), el bot contesta con el menú de números y no vuelve a intentar con la IA durante un minuto.
 
 ## Atender desde tu WhatsApp (admin)

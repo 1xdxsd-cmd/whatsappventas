@@ -172,6 +172,24 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
   return { estado, respuestas, avisos, caso };
 }
 
+// Lo que el cliente tiene en curso, para que la IA pueda contestarle "¿y mi pago?".
+function pendientesDe(jid, contexto) {
+  const nombres = {
+    pedido: (c) => `Pedido esperando confirmación del pago: ${c.resumen}`,
+    recarga: (c) => `Recarga esperando confirmación del pago: ${c.resumen}`,
+    entrega: (c) => `Pagado, esperando que le envíen los datos: ${c.resumen}`,
+    reporte: (c) => `Reporte de cuenta caída en revisión (${c.plataforma}): ${c.resumen}`,
+  };
+  const pendientes = casos
+    .abiertos()
+    .filter((c) => c.jid === jid && nombres[c.tipo])
+    .map((c) => nombres[c.tipo](c));
+  if (contexto.reporteEnCurso && !pendientes.some((p) => p.startsWith('Reporte'))) {
+    pendientes.push(`Reporte de cuenta caída en revisión (${contexto.reporteEnCurso.plataforma})`);
+  }
+  return pendientes;
+}
+
 // Pasos donde el cliente elige con un número. En los demás (motivo del reporte,
 // contraseña nueva, monto de recarga, comprobante, asesor) el texto es la respuesta.
 const PASOS_CON_NUMEROS = ['inicio', 'menu', 'catalogo', 'tipo', 'renovar', 'reporte', 'forma-pago', 'elegir-cobrador', 'cuenta'];
@@ -280,31 +298,38 @@ async function atender(mensaje) {
     }
   }
 
-  // Texto libre donde el bot espera un número (menú, lista de planes, de
-  // cuentas...): responde la IA. Si pide una acción ([[opcion:N]]),
-  // se sigue como si el cliente hubiera escrito ese número; si no responde,
-  // queda el menú de números de siempre.
+  // Con IA, el texto libre donde el bot espera un número (menú, lista de
+  // planes, de cuentas...) lo contesta la IA. Puede iniciar una acción
+  // ([[accion:renovar]]) o elegir de la lista que ve el cliente ([[elegir:2]]),
+  // y se sigue como si el cliente hubiera escrito ese número. Si la IA no
+  // responde, queda el menú de números de siempre.
   let entrada = leido;
   let desde = anterior;
-  if (asistente && PASOS_CON_NUMEROS.includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo) {
-    if (entiendeElMenu(leido.texto)) {
-      asistente.olvidar(jid);
-    } else {
-      conexion.escribiendo(jid);
-      const ia = await asistente.conversar(jid, leido.texto.trim(), contexto);
-      if (ia) {
-        if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
-        if (ia.opcion === null) {
-          guardarEstado(jid, { paso: 'menu' });
-          if (anterior.paso === 'inicio') {
-            for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
-          }
-          return;
-        }
+  let accionDeIA = null;
+  if (asistente && PASOS_CON_NUMEROS.includes(anterior.paso) && leido.texto.trim() && !leido.tieneArchivo && !entiendeElMenu(leido.texto)) {
+    conexion.escribiendo(jid);
+    contexto.pendientes = pendientesDe(jid, contexto);
+    const ia = await asistente.conversar(jid, leido.texto.trim(), contexto, anterior.paso);
+    if (ia) {
+      if (ia.texto) await conexion.enviarTexto(jid, ia.texto);
+      // Cobrar con crédito solo cuando el cliente lo elige él mismo con el número.
+      if (ia.elegir !== null && !['inicio', 'menu', 'forma-pago'].includes(anterior.paso)) {
+        entrada = { ...leido, texto: String(ia.elegir) };
+      } else if (ia.opcion !== null) {
         entrada = { ...leido, texto: String(ia.opcion) };
         desde = { paso: 'menu' };
+        accionDeIA = ia.accion;
+      } else {
+        // Solo platicó: el cliente sigue donde estaba (si veía una lista, puede elegir).
+        guardarEstado(jid, anterior.paso === 'inicio' ? { paso: 'menu' } : anterior);
+        if (anterior.paso === 'inicio') {
+          for (const recordatorio of recordatorioAlEscribir(contexto.rentas)) await conexion.enviarTexto(jid, recordatorio);
+        }
+        return;
       }
     }
+  } else if (asistente) {
+    asistente.anotar(jid, 'user', leido.texto.trim() || '(envió un archivo)');
   }
 
   const resultado = procesarMensaje(entrada, desde, contexto);
@@ -313,6 +338,13 @@ async function atender(mensaje) {
 
   for (const respuesta of [...resultado.respuestas, ...ejecutado.respuestas]) {
     await conexion.enviarTexto(jid, respuesta);
+    asistente?.anotar(jid, 'assistant', respuesta);
+  }
+
+  // Si la IA lo pasó con un asesor, que el asesor sepa qué contó.
+  if (accionDeIA === 'asesor' && resultado.aviso) {
+    const dijo = asistente.loQueDijo(jid);
+    if (dijo.length) resultado.aviso.texto += `\nLo que contó: ${dijo.map((t) => `"${t}"`).join(' / ')}`;
   }
 
   if (resultado.aviso) {
