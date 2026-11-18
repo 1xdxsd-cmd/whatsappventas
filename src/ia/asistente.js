@@ -56,6 +56,9 @@ export function crearAsistente({ url, modelo, esperaMs, archivoConocimiento, log
           messages: mensajes,
           stream: false,
           keep_alive: MANTENER_CARGADO,
+          // Sin razonamiento: los modelos que "piensan" (tipo Qwen) tardan
+          // minutos en eso hasta para un "hola".
+          think: false,
           options: { temperature: 0.4, num_predict: MAXIMO_DE_PALABRAS },
         }),
         signal: AbortSignal.timeout(esperaMs),

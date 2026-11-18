@@ -90,4 +90,5 @@ test('pide que el modelo se quede cargado y lo precarga al arrancar', async () =
   assert.deepEqual(pedidos[0].cuerpo, { model: 'novatech', keep_alive: '24h' });
   assert.equal(pedidos[1].cuerpo.keep_alive, '24h');
   assert.equal(pedidos[1].cuerpo.options.num_predict, 300);
+  assert.equal(pedidos[1].cuerpo.think, false);
 });
