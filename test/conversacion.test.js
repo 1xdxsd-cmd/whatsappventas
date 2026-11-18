@@ -295,7 +295,7 @@ test('recargar crédito: muestra el saldo y pide el monto', () => {
 test('recargar crédito: con un monto válido pide la transferencia y crea la recarga', () => {
   const r = procesarMensaje({ texto: '$1,500 pesos' }, { paso: 'recarga' }, conSaldo);
   assert.deepEqual(r.acciones, [{ tipo: 'crearRecarga', monto: 1500, resumen: 'Recarga de crédito de $1500', cobrador: null }]);
-  assert.deepEqual(r.estado, { paso: 'pago', resumen: 'Recarga de crédito de $1500', recarga: true });
+  assert.deepEqual(r.estado, { paso: 'pago', resumen: 'Recarga de crédito de $1500', recarga: true, cobrador: null });
   assert.match(r.respuestas[1], /Banco X/);
   const comprobante = procesarMensaje({ tieneComprobante: true }, r.estado, conSaldo);
   assert.match(comprobante.aviso.texto, /se le suma el crédito/);
@@ -366,4 +366,9 @@ test('con un reporte en curso no deja hacer otro', () => {
   assert.equal(r.acciones, undefined);
   const r2 = procesarMensaje({ texto: 'otra cosa' }, { paso: 'reporte-motivo', rentaId: 'r1' }, contexto);
   assert.equal(r2.acciones, undefined);
+});
+
+test('el comprobante queda en revisión con la persona a la que se pagó', () => {
+  const r = procesarMensaje({ tieneComprobante: true }, { paso: 'pago', resumen: 'Renovar Netflix', cobrador: 'Thalia' }, { servicios: [], moneda: '$' });
+  assert.match(r.respuestas[0], /en revisión con \*Thalia\*; en cuanto lo apruebe/);
 });

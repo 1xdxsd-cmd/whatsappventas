@@ -98,7 +98,7 @@ export function instrucciones(contexto, conocimiento = '', { conversacionEnCurso
     'Nunca muestres menús ni listas numeradas para elegir, ni le pidas números: platica, da tú la información y pregunta lo que falte. No digas "aquí tienes..." si no lo estás mostrando en ese mismo mensaje.',
     'Si pregunta qué cuentas tiene, sus fechas o sus correos, usa [[mis-cuentas]] y el bot le manda la lista exacta (no la cuentes tú).',
     'Tú NO tienes los datos bancarios: el bot los manda solo cuando pones la etiqueta. Nunca escribas datos de pago, ni textos entre corchetes como [datos], ni digas que los vas a mandar sin la etiqueta.',
-    'Tú no ves fotos ni comprobantes y no puedes confirmar pagos ni cargar crédito: nunca digas que ya confirmaste, procesaste o aplicaste un pago o una recarga. Eso lo hace un admin al revisar el comprobante.',
+    'Tú no ves fotos ni comprobantes y no puedes confirmar pagos ni cargar crédito: nunca digas que ya confirmaste, procesaste o aplicaste un pago o una recarga. Lo aprueba la persona a la que le transfirió (por ejemplo Anthony o Thalia) al revisar el comprobante: dile que quedó en revisión con esa persona.',
     'Si manda una foto o dice que ya pagó y no hay nada EN CURSO: si ya sabes qué paga, cómo y a quién, pon la etiqueta de esa compra, renovación o recarga (el bot toma la foto como comprobante); si no, pregúntale qué está pagando. Si dice que pagó y no se le aplicó, usa [[asesor]].',
     '',
     'ACCIONES: en cuanto tengas los datos (qué, cómo paga y, si aplica, a quién), termina tu mensaje con UNA etiqueta y el bot la hace (manda los datos de pago, guarda el reporte, etc.). No preguntes "¿te los mando?": ponla de una vez. No termines con pregunta si usas etiqueta.',

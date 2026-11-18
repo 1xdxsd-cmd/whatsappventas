@@ -235,7 +235,7 @@ export function procesarMensaje(mensaje, estado, contexto) {
     case 'revision': {
       if (mensaje.tieneComprobante) {
         return {
-          respuestas: ['¡Recibimos tu comprobante! Lo revisamos y te enviamos los datos de acceso por aquí.'],
+          respuestas: [textoComprobanteRecibido(estado)],
           estado: { ...estado, paso: 'revision' },
           acciones: [{ tipo: 'comprobanteRecibido' }],
           aviso: {
@@ -548,6 +548,13 @@ function cobrar(pendiente, { datosPago, cobradores }) {
   return cobrarA(pendiente, { datos: datosPago }, null, true);
 }
 
+// El pago queda en revisión: lo aprueba la persona a la que se le transfirió.
+function textoComprobanteRecibido(estado) {
+  const quien = estado.cobrador ? `*${estado.cobrador}*` : 'un asesor';
+  const despues = estado.recarga ? 'se suma el crédito a tu cuenta' : 'te enviamos los datos de acceso por aquí';
+  return `¡Recibimos tu comprobante! 🧾 Queda en revisión con ${quien}; en cuanto lo apruebe, ${despues}. ✅`;
+}
+
 function cobrarA(pendiente, cobrador, indice, conResumen = false) {
   const { resumen } = pendiente;
   const destino = cobrador.nombre ? ` a *${cobrador.nombre}*` : '';
@@ -558,14 +565,14 @@ function cobrarA(pendiente, cobrador, indice, conResumen = false) {
   if (pendiente.tipo === 'recarga') {
     return {
       respuestas,
-      estado: { paso: 'pago', resumen, recarga: true },
+      estado: { paso: 'pago', resumen, recarga: true, cobrador: cobrador.nombre ?? null },
       acciones: [{ tipo: 'crearRecarga', monto: pendiente.monto, resumen, cobrador: indice }],
       aviso: { texto: `Quiere ${resumen.charAt(0).toLowerCase()}${resumen.slice(1)}.${paraQuien} Esperando comprobante.` },
     };
   }
   return {
     respuestas,
-    estado: { paso: 'pago', resumen },
+    estado: { paso: 'pago', resumen, cobrador: cobrador.nombre ?? null },
     acciones: [{ tipo: 'crearPedido', servicio: pendiente.servicio, resumen, renta: pendiente.renta ?? null, cobrador: indice }],
     aviso: { texto: `Nuevo pedido: ${resumen}.${paraQuien} Esperando comprobante.` },
   };

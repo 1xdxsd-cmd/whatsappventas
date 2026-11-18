@@ -241,6 +241,18 @@ test('un pago a la cuenta de un admin no se les cuenta a los demás', async () =
   assert.deepEqual(p.avisosATodos, []);
 });
 
+test('una transferencia a la cuenta de un admin solo la aprueba ese admin', async () => {
+  const p = preparar({ cuentas: [{ email: 'libre@x.com', password: 'clave' }] });
+  const caso = p.casos.abrir({ ...pedido, numerosDelPago: ['525500000000'], nombreDelPago: 'Thalia' });
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`), '525511111111');
+  assert.equal(caso.abierto, true);
+  assert.match(p.alAdmin().at(-1), /transferencia a Thalia: solo esa persona la puede aprobar/);
+  await p.admin.manejar(texto(`/rechazar ${caso.id} no llegó`), '525511111111');
+  assert.equal(caso.abierto, true);
+  await p.admin.manejar(texto(`/aprobar ${caso.id}`), '5215500000000');
+  assert.equal(caso.abierto, false);
+});
+
 const reporte = {
   jid: CLIENTE, telefono: '5215512345678', nombre: 'Laura', cliente: { id: 'client-1', nombre: 'Laura' }, tipo: 'reporte', plataforma: 'netflix', caidaId: 'fall-1', resumen: 'pide código',
   renta: { id: 'r1', platform: 'netflix', type: 'perfil', accountId: 'acc-caida', email: 'caida@x.com' },

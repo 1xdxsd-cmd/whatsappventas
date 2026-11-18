@@ -277,6 +277,12 @@ export function crearAtencionAdmin({ conexion, pagina, cobros, casos, estados, l
     // Evita, por ejemplo, entregar dos veces si dos admins aprueban el mismo pedido.
     if (!caso.abierto && comando !== 'enviar') return responder(`#${caso.id} ya está cerrado.`);
 
+    // Una transferencia a la cuenta de un admin solo la aprueba (o rechaza) ese admin.
+    const esDelPago = caso.numerosDelPago?.length && ['aprobar', 'rechazar'].includes(comando);
+    if (esDelPago && !caso.numerosDelPago.some((n) => mismoTelefono(n, numeroAdmin))) {
+      return responder(`#${caso.id} es una transferencia a ${caso.nombreDelPago ?? 'otro admin'}: solo esa persona la puede aprobar o rechazar.`);
+    }
+
     switch (comando) {
       case 'enviar':
         if (!resto && !leerMensaje(mensaje).tieneArchivo) return responder(`Escribe el texto después del número: #${numero} hola`);

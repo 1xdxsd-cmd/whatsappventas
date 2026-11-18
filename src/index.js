@@ -106,7 +106,10 @@ async function ejecutarAcciones(acciones, { jid, estado, contexto, telefono, nom
   const avisos = [];
   let caso = estado.casoId ? casos.obtener(estado.casoId) : null;
   const datosCliente = { jid, telefono, nombre, cliente: contexto.cliente ?? { id: null, nombre } };
-  const delPago = (accion) => ({ numerosDelPago: config.cobradores[accion.cobrador]?.numeros ?? null });
+  const delPago = (accion) => ({
+    numerosDelPago: config.cobradores[accion.cobrador]?.numeros ?? null,
+    nombreDelPago: config.cobradores[accion.cobrador]?.nombre ?? null,
+  });
 
   for (const accion of acciones) {
     try {
@@ -201,8 +204,8 @@ function sinPedirNumeros(texto) {
 // Lo que el cliente tiene en curso, para que la IA pueda contestarle "¿y mi pago?".
 function pendientesDe(jid, contexto) {
   const nombres = {
-    pedido: (c) => `Pedido esperando confirmación del pago: ${c.resumen}`,
-    recarga: (c) => `Recarga esperando confirmación del pago: ${c.resumen}`,
+    pedido: (c) => `Pedido esperando que ${c.nombreDelPago ?? 'un admin'} apruebe el pago (aún NO está confirmado): ${c.resumen}`,
+    recarga: (c) => `Recarga esperando que ${c.nombreDelPago ?? 'un admin'} apruebe el pago (aún NO está confirmada ni sumada): ${c.resumen}`,
     entrega: (c) => `Pagado, esperando que le envíen los datos: ${c.resumen}`,
     reporte: (c) => `Reporte de cuenta caída en revisión (${c.plataforma}): ${c.resumen}`,
   };
